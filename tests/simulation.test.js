@@ -29,11 +29,15 @@ test('attractor cutoff, scoring, and stronger nearby cheese',()=>{
   Object.assign(s.rats[0],{x:0,z:0,nextEvaluate:0});stepGame(s);assert.equal(s.rats[0].target,'player:0');
   s.players[0].cheese=0;advance(s,0.22);assert.equal(s.rats[0].target,'player:1');
 });
-test('base capture counts ten identities and nearby players can steal',()=>{
+test('captured rats eat at their base and ignore both players until poisoned',()=>{
   const s=game();parkRats(s);s.players[0].x=0;s.players[0].z=0;
   const home=s.bases[0],rat=s.rats[0];Object.assign(rat,{x:home.x+1,z:home.z,nextEvaluate:0});
   stepGame(s);assert.equal(s.bases[0].count,1);assert.equal(rat.capturedBy,0);assert.equal(rat.target,'base:0');
-  Object.assign(s.players[1],{x:rat.x-0.25,z:rat.z,cheese:65});advance(s,0.22);assert.equal(rat.target,'player:1');
+  Object.assign(s.players[1],{x:rat.x-0.05,z:rat.z,cheese:100});advance(s,2);
+  assert.equal(rat.target,'base:0');assert.equal(rat.capturedBy,0);assert.equal(rat.eating,true);
+  assert.equal(s.players[1].followers,0);assert.equal(s.players[1].cheese,100);
+  Object.assign(s.players[0],{x:rat.x,z:rat.z,cheese:100});advance(s,4,{0:{moveX:1,moveZ:-1}});
+  assert.equal(rat.capturedBy,0);assert.ok(distance(rat,home)<5);assert.equal(rat.target,'base:0');
   assert.equal(s.bases.reduce((n,b)=>n+b.count,0)+s.rats.filter(r=>r.capturedBy===null).length,10);
 });
 test('cheese drains per follower and requires a full second in home to refill',()=>{
@@ -60,10 +64,30 @@ test('poison disables base attraction for 15 seconds and rats flee for 3',()=>{
   const s=game();parkRats(s);s.players[0].x=0;s.players[0].z=0;const b=s.bases[0],rat=s.rats[0];
   Object.assign(rat,{x:b.x,z:b.z,nextEvaluate:0});stepGame(s);poisonBase(s,0);
   assert.ok(Math.abs(b.poisonedUntil-s.time-15)<1e-6);assert.ok(Math.abs(rat.fleeUntil-s.time-3)<1e-6);
+  assert.equal(rat.capturedBy,null);assert.equal(rat.eating,false);assert.equal(b.count,0);
   advance(s,1);assert.equal(rat.target,null);assert.ok(distance(rat,b)>5);assert.equal(b.count,0);
   advance(s,2.1);assert.ok(rat.fleeUntil<=s.time);
   advance(s,12);assert.ok(b.poisonedUntil<=s.time);
   Object.assign(rat,{x:b.x+1,z:b.z,nextEvaluate:0});stepGame(s);assert.equal(rat.target,'base:0');
+});
+test('poisoned bases cannot recapture fleeing rats or new arrivals until poison expires',()=>{
+  const s=game();parkRats(s);const base=s.bases[0],rat=s.rats[0];s.players[0].x=0;s.players[0].z=0;
+  poisonBase(s,0);Object.assign(rat,{x:base.x+1,z:base.z,nextEvaluate:0});
+  stepGame(s);assert.equal(rat.capturedBy,null);assert.equal(base.count,0);
+  advance(s,15.1);Object.assign(rat,{x:base.x+1,z:base.z,nextEvaluate:0});
+  stepGame(s);assert.equal(rat.capturedBy,0);assert.equal(rat.target,'base:0');
+});
+test('poison releases secured rats and they can follow cheese after fleeing',()=>{
+  const s=game();parkRats(s);const base=s.bases[0],rat=s.rats[0];
+  Object.assign(rat,{x:base.x,z:base.z,nextEvaluate:0});stepGame(s);assert.equal(rat.capturedBy,0);
+  poisonBase(s,0);advance(s,3.05);assert.equal(rat.capturedBy,null);
+  Object.assign(s.players[1],{x:rat.x+0.2,z:rat.z,cheese:100});rat.nextEvaluate=0;
+  stepGame(s);assert.equal(rat.target,'player:1');assert.equal(rat.eating,false);
+});
+test('throwing from the left hand leaves right-hand cheese intact',()=>{
+  const s=game();parkRats(s);const p=s.players[0];Object.assign(p,{x:0,z:4,poison:true,cheese:74,yaw:0});
+  stepGame(s,{0:{throw:true,yaw:0}});assert.equal(p.poison,false);assert.equal(p.cheese,74);
+  assert.equal(s.projectiles.length,1);assert.ok(s.projectiles[0].x<p.x);
 });
 test('a pickup holds one poison and returns 20 seconds after collection',()=>{
   const s=game();parkRats(s);const p=s.players[0],pickup=s.pickups[1];Object.assign(p,{x:pickup.x,z:pickup.z});stepGame(s);
@@ -117,4 +141,15 @@ test('bot carrying poison attacks an enemy base with at least three rats',()=>{
   Object.assign(bot,{x:home.x,z:home.z-11,poison:true});bot.bot.nextDecision=0;
   stepGame(s);assert.equal(bot.bot.mode,'INTERRUPT');assert.equal(bot.poison,false);assert.equal(s.projectiles.length,1);
   advance(s,2);assert.ok(home.poisonedUntil>s.time);assert.ok(s.events.some(e=>e.type==='poison'&&e.baseId===0));
+});
+test('bot seeks distant poison instead of trying to lure secured rats',()=>{
+  const s=createGameState(87);s.phase='playing';
+  s.rats.forEach((rat,i)=>{
+    const owner=i<3?0:1,base=s.bases[owner];
+    Object.assign(rat,{x:base.x,z:base.z,capturedBy:owner,target:`base:${owner}`});
+  });
+  s.bases[0].count=3;s.bases[1].count=7;s.players[1].bot.nextDecision=0;
+  stepGame(s);assert.equal(s.players[1].bot.mode,'INTERRUPT');
+  assert.deepEqual(s.players[1].bot.target,{x:0,z:0});
+  advance(s,10);assert.ok(s.events.some(e=>e.type==='pickup'&&e.playerId===1));
 });

@@ -10,7 +10,9 @@ let state=createGameState(),previous=null,inGame=false,paused=false,accumulator=
 let settings={sensitivity:1,sound:true};
 try{const saved=JSON.parse(localStorage.getItem('rat-race-settings')??'null');if(saved){if(Number.isFinite(saved.sensitivity))settings.sensitivity=Math.max(0.3,Math.min(2.5,saved.sensitivity));if(typeof saved.sound==='boolean')settings.sound=saved.sound;}}catch{/* Private browsing still works. */}
 
-const renderer=new GameRenderer(canvas);
+const renderer=await GameRenderer.create(canvas,(loaded,total)=>{
+  $('scene-loading').querySelector('span').textContent=`Unpacking the yard… ${loaded} / ${total}`;
+});
 const input=new PlayerInput(canvas,locked=>{
   if(!inGame||state.phase==='ended')return;
   paused=!locked;accumulator=0;last=performance.now();

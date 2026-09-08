@@ -19,13 +19,13 @@ export class GameUI {
     for(const b of state.bases)n[b.id===0?'home-poison':'rival-poison'].textContent=b.poisonedUntil>state.time?`POISONED · ${Math.ceil(b.poisonedUntil-state.time)}s`:'';
     n.cheese.textContent=Math.ceil(p.cheese);n['cheese-fill'].style.width=`${p.cheese}%`;
     const atHome=distance(p,home)<=5;
-    n['cheese-hint'].textContent=atHome&&p.cheese<99?`Refilling… ${Math.round(p.refillProgress*100)}%`:p.followers?`−${p.followers*2} cheese / sec · ${p.followers} hungry ${p.followers===1?'rat':'rats'}`:p.cheese<30?'Head home to refill your cheese.':'Your most persuasive argument.';
+    n['cheese-hint'].textContent=atHome&&p.cheese<99?`Refilling… ${Math.round(p.refillProgress*100)}%`:p.followers?`−${p.followers*2} cheese / sec · ${p.followers} hungry ${p.followers===1?'rat':'rats'}`:p.cheese<30?'Head home to refill your cheese.':'Right hand · always ready to lure.';
     document.querySelector('.cheese-inventory').classList.toggle('low',p.cheese<30);
     n.followers.textContent=p.followers;
     n['poison-held'].textContent=p.poison?'READY':'EMPTY';
-    n['poison-hint'].textContent=p.poison?'Aim at a base. Make a little trouble.':'Walk over a green pickup to collect.';
+    n['poison-hint'].textContent=p.poison?'Left hand · aim at a rival cheese board.':'Walk over a green pickup to collect.';
     document.querySelector('.poison-inventory').classList.toggle('held',p.poison);
-    n['context-hint'].textContent=state.phase==='sudden-death'?'Next new rat captured wins. Make it yours.':home.poisonedUntil>state.time?'Your base is poisoned. Rally the escapees!':p.cheese<1?'No cheese, no friends. Get home to refill.':atHome&&p.followers?'Let them gather. Sprint away to leave them home.':atHome?'Your base · stand here for 1 second to refill.':p.followers?'Bring your little entourage back to the yellow base.':'Find the rats. Make a good first impression.';
+    n['context-hint'].textContent=state.phase==='sudden-death'?'Next new rat captured wins. Make it yours.':home.poisonedUntil>state.time?'Your base is poisoned. Rally the escapees!':p.cheese<1?'No cheese, no friends. Get home to refill.':atHome&&p.followers?'Rats that enter your base stay here and eat.':atHome?'Your base · stand here for 1 second to refill.':p.followers?'Bring your little entourage back to the yellow base.':'Find the rats. Make a good first impression.';
     if(state.phase==='countdown'){
       const count=Math.max(1,Math.ceil(state.countdown));n['countdown-number'].textContent=count;
       if(count!==this.lastCountdown){this.audio.play('countdown');this.lastCountdown=count;}
@@ -33,7 +33,7 @@ export class GameUI {
     for(const event of state.events){
       if(event.id<=this.lastEvent)continue;this.lastEvent=event.id;
       if(event.type==='capture'){
-        if(event.baseId===0){this.audio.play('capture');this.notify('A new rat at home. Excellent taste.');}
+        if(event.baseId===0){this.audio.play('capture');this.notify('Rat secured! Eating at home until the base is poisoned.');}
       }else if(event.type==='pickup'&&event.playerId===0){this.audio.play('pickup');this.notify('Poison acquired. Left click to lob it at a base.');}
       else if(event.type==='poison'){this.audio.play('poison');this.notify(event.baseId===0?'Your base is poisoned! Cheese disabled for 15 seconds.':'Rival base poisoned. Their rats are making an exit.');}
       else if(event.type==='miss'&&event.playerId===0)this.notify('No base hit. That one was just for dramatic effect.');

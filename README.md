@@ -18,8 +18,10 @@ web server works. Use HTTP rather than opening `index.html` as a `file://` URL.
 Three.js is pinned to `0.180.0` and loaded from jsDelivr using an import map, following
 the [Three.js static installation approach](https://threejs.org/manual/en/installation.html).
 An internet connection is needed for that module. Google Fonts is optional; system
-fonts are used if it is unavailable. All geometry, textures, icons, and sound effects
-are generated locally; no downloaded art or audio assets are required.
+fonts are used if it is unavailable. Authored GLB models and their texture atlases are included in `assets/models/`, so
+playing does not depend on asset-hosting services. See [asset credits](assets/CREDITS.md).
+The rat and opponent use skeletal animations; the rats also nibble when eating.
+The flask, first-person hands, paving textures, icons, and sound effects are generated locally.
 
 ## Play
 
@@ -36,13 +38,16 @@ keyboard are required; the lobby responds to narrow screens, but touch gameplay 
 not implemented. The lobby includes instructions, mouse sensitivity, sound settings,
 and an expandable live arena preview. Settings persist on the device.
 
-- Rats reevaluate both hands and both base stacks every 0.2 seconds. Attraction is
+- Free rats reevaluate both hands and both base stacks every 0.2 seconds. Attraction is
   `cheese / distance`, with a 12-unit cutoff and a 0.001-unit guard at exact overlap.
   Bases provide 40 cheese, hands hold up to 100, and each follower eats 2 per second.
 - Stand inside your own 5-unit base radius for a continuous second to refill.
-- Bring rats into your base, let them gather near the stack, then sprint away to
-  leave them there. Rats have no permanent team and can be stolen by a better offer.
-- Walk over one of three green pickups to carry poison. Aim level from roughly
+- Once a rat enters a healthy base, it stays there and eats the unlimited base
+  cheese. It ignores both players, does not drain hand cheese, and cannot be lured
+  away. Poison releases every resident; poisoned bases cannot capture rats until
+  the 15-second effect expires. After fleeing for 3 seconds, rats can be lured again.
+- Cheese stays in your right hand. Walk over a green pickup to carry poison in
+  your left hand at the same time. Throwing never removes your cheese. Aim level from roughly
   10–12 units away and throw toward a base. Landing within 4 units of its center
   disables the stack for 15 seconds and makes resident rats flee for 3 seconds.
   A miss is consumed without affecting a base. Pickups return 20 seconds after collection.
@@ -61,6 +66,8 @@ src/map.js             Shared arena data, capsule collision, A* navigation
 src/simulation.js      Rules, seeded randomness, rat AI, bot AI, projectiles, match state
 src/input.js           Browser events → plain player command packets
 src/renderer.js        Three.js scene; reads state and interpolates transforms
+src/assets.js          Local GLB loading, shared instances, skeletal animation
+assets/models/         Rat, opponent, food, and environment models with textures
 src/ui.js              HUD, minimap, notifications, and match screens
 src/audio.js           Optional Web Audio feedback
 src/main.js            Client lifecycle and fixed 60 Hz accumulator
@@ -116,6 +123,7 @@ npm test
 ```
 
 Tests cover deterministic snapshot replay, countdown and match timing, attraction
-and stealing, cheese decay/refill, collision and navigation, pickups, ballistic
-hits/misses, poison duration and fleeing, sudden death, full bot matches, and
-independent human command slots.
+and secured feeding, cheese decay/refill, collision and navigation, pickups, ballistic
+hits/misses, left-hand throws, poison release and recapture, sudden death, full bot matches, and
+independent human command slots. State schema version 2 adds `rat.eating` and
+keeps `capturedBy` latched until a base is poisoned.
