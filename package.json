@@ -1,0 +1,11 @@
+{
+  "name": "rat-race",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A tiny first-person cheese heist. A renderer-independent simulation with a Three.js client.",
+  "scripts": {
+    "start": "python3 -m http.server 5173",
+    "test": "node --test tests/*.test.js"
+  }
+}
