@@ -1,3 +1,4 @@
+import { MAPS, getMap, DEFAULT_MAP_ID } from './map.js';
 import { createGameState, startMatch, stepGame, FIXED_DT } from './simulation.js';
 import { GameRenderer } from './renderer.js';
 import { PlayerInput } from './input.js';
@@ -6,13 +7,39 @@ import { GameUI } from './ui.js';
 
 const $=id=>document.getElementById(id);
 const canvas=$('game-canvas'),audio=new GameAudio(),ui=new GameUI(audio);
-let state=createGameState(),previous=null,inGame=false,paused=false,accumulator=0,last=performance.now(),lastUI=0,endedShown=false;
+let selectedMap=DEFAULT_MAP_ID;
+try{const saved=localStorage.getItem('rat-race-map');if(MAPS.some(m=>m.id===saved))selectedMap=saved;}catch{}
+let state=createGameState(12345,{mapId:selectedMap}),previous=null,inGame=false,paused=false,accumulator=0,last=performance.now(),lastUI=0,endedShown=false;
 let settings={sensitivity:1,sound:true};
 try{const saved=JSON.parse(localStorage.getItem('rat-race-settings')??'null');if(saved){if(Number.isFinite(saved.sensitivity))settings.sensitivity=Math.max(0.3,Math.min(2.5,saved.sensitivity));if(typeof saved.sound==='boolean')settings.sound=saved.sound;}}catch{/* Private browsing still works. */}
 
 const renderer=await GameRenderer.create(canvas,(loaded,total)=>{
-  $('scene-loading').querySelector('span').textContent=`Unpacking the yard… ${loaded} / ${total}`;
+  $('scene-loading').querySelector('span').textContent=`Unpacking the arenas… ${loaded} / ${total}`;
 });
+function selectMap(id) {
+  if(inGame)return;
+  selectedMap=id;const map=getMap(id);state=createGameState(12345,{mapId:id});previous=null;renderer.setMap(id);
+  $('arena-number').textContent=map.number;$('arena-title').textContent=map.name.toUpperCase();
+  $('arena-description').textContent=map.description;$('arena-detail').textContent=map.detail;
+  $('arena-coordinate').textContent=`${map.size} × ${map.size} / ${map.levels} LEVELS / ${map.highest}m HIGH`;
+  $('minimap-title').textContent=map.name.toUpperCase();
+  $('map-select').value=id;
+  $('selected-map-details').textContent=`${map.size} × ${map.size} · ${map.levels} levels · ${map.highest}m high`;
+  document.querySelectorAll('.map-option').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.map===id)));
+  try{localStorage.setItem('rat-race-map',id);}catch{}
+}
+$('map-select').replaceChildren();
+for(const map of MAPS){
+  const option=document.createElement('option');option.value=map.id;option.textContent=map.name;$('map-select').append(option);
+  const button=document.createElement('button');button.className='map-option';button.dataset.map=map.id;
+  button.setAttribute('aria-pressed','false');button.style.setProperty('--map-accent',map.color);
+  button.innerHTML=`<canvas width="240" height="160" aria-hidden="true"></canvas><span class="map-number">${map.number}</span><span class="map-copy"><small>${map.tag}</small><strong>${map.name}</strong><span>${map.size} × ${map.size} <i>·</i> ${map.levels} levels <i>·</i> ${map.highest}m high</span></span><span class="map-check" aria-hidden="true">✓</span>`;
+  button.addEventListener('click',()=>selectMap(map.id));$('map-options').append(button);ui.drawMapPreview(button.querySelector('canvas'),map);
+}
+selectMap(selectedMap);
+$('map-select').disabled=false;
+$('map-select').addEventListener('change',event=>selectMap(event.target.value));
+
 const input=new PlayerInput(canvas,locked=>{
   if(!inGame||state.phase==='ended')return;
   paused=!locked;accumulator=0;last=performance.now();
@@ -37,7 +64,7 @@ applySettings();
 
 function begin(){
   document.body.classList.remove('inspecting');
-  state=createGameState(Date.now());startMatch(state);previous=null;inGame=true;paused=true;endedShown=false;accumulator=0;last=performance.now();
+  state=createGameState(Date.now(),{mapId:selectedMap});startMatch(state);previous=null;inGame=true;paused=true;endedShown=false;accumulator=0;last=performance.now();
   input.reset(state.players[0]);ui.reset();audio.unlock();
   document.body.classList.add('in-game');$('game-hud').hidden=false;ui.update(state);ui.showScreen('countdown');renderer.resize();
   input.lock().catch(error=>showLockError(error.message));
@@ -47,7 +74,7 @@ function resume(){audio.unlock();input.lock().catch(error=>showLockError(error.m
 function lobby(){
   inGame=false;paused=false;if(input.locked)document.exitPointerLock();
   document.body.classList.remove('in-game');$('game-hud').hidden=true;ui.showScreen(null);
-  state=createGameState();previous=null;accumulator=0;ui.reset();renderer.resize();$('start-button').focus();
+  state=createGameState(12345,{mapId:selectedMap});previous=null;accumulator=0;ui.reset();renderer.resize();$('start-button').focus();
 }
 $('start-button').addEventListener('click',begin);$('rematch-button').addEventListener('click',begin);
 $('resume-button').addEventListener('click',resume);$('pause-button').addEventListener('click',pause);
@@ -79,7 +106,7 @@ function frame(now){
     accumulator+=elapsed;
     while(accumulator>=FIXED_DT){
       // Only transforms need interpolation. The authoritative state stays plain.
-      previous={players:state.players.map(p=>({x:p.x,z:p.z})),rats:state.rats.map(r=>({x:r.x,z:r.z}))};
+      previous={players:state.players.map(p=>({x:p.x,y:p.y,z:p.z})),rats:state.rats.map(r=>({x:r.x,y:r.y,z:r.z}))};
       stepGame(state,{0:input.sample()});accumulator-=FIXED_DT;
       if(state.phase==='ended')break;
     }

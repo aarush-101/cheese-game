@@ -10,8 +10,24 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800;900&family=DM+Sans:wght@400;450;500;550;600;650;700;750;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./style.css" />
-  <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"}}</script>
+  <link rel="stylesheet" href="./style.css?v=0.3.1" />
+  <!-- Version the entire local module graph so an updated page cannot load an
+       older cached renderer or simulation. Keep these URLs on one release. -->
+  <script type="importmap">
+    {"imports":{
+      "three":"https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+      "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/",
+      "./src/main.js":"./src/main.js?v=0.3.1",
+      "./src/maps.js":"./src/maps.js?v=0.3.1",
+      "./src/map.js":"./src/map.js?v=0.3.1",
+      "./src/simulation.js":"./src/simulation.js?v=0.3.1",
+      "./src/renderer.js":"./src/renderer.js?v=0.3.1",
+      "./src/assets.js":"./src/assets.js?v=0.3.1",
+      "./src/input.js":"./src/input.js?v=0.3.1",
+      "./src/ui.js":"./src/ui.js?v=0.3.1",
+      "./src/audio.js":"./src/audio.js?v=0.3.1"
+    }}
+  </script>
 </head>
 <body>
   <svg class="svg-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -49,6 +65,14 @@
           <h1 id="hero-title">A LITTLE<br/>CHEESE.<br/>A LOT OF <span class="chaos">CHAOS.<svg viewBox="0 0 300 15" aria-hidden="true"><path d="M3 10Q128-2 296 6M21 14Q170 4 278 10"/></svg></span></h1>
           <p class="hero-description">Ten rats. Two bases. One big appetite.<br/>Lure the little freeloaders home, sabotage your rival, and rule the rat race.</p>
           <div class="start-area">
+            <div class="quick-map-picker">
+              <label for="map-select">CHOOSE YOUR MAP <span>3 ARENAS</span></label>
+              <div class="map-select-wrap">
+                <select id="map-select" aria-describedby="selected-map-details" disabled><option>Loading arenas…</option></select>
+                <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
+              </div>
+              <p id="selected-map-details" aria-live="polite">Rooftops, ladders, and room to roam.</p>
+            </div>
             <button id="start-button" class="primary-button" disabled><span id="start-label">WARMING UP THE YARD</span><svg><use href="#i-arrow"/></svg></button>
             <div class="match-meta"><span><span class="status-dot"></span> YOU VS. CRUMB BOT</span><span class="meta-dot">·</span><span><svg><use href="#i-clock"/></svg> 3 MIN ROUNDS</span></div>
             <p id="loading-error" class="loading-error" role="alert" hidden></p>
@@ -59,13 +83,19 @@
         <div class="arena-card">
           <div id="stage" class="stage">
             <canvas id="game-canvas" aria-label="Rat Race 3D arena"></canvas>
-            <div class="preview-top preview-ui"><span class="arena-name"><span class="arena-mark">01</span> THE CRUMB YARD</span><span class="live-label"><span></span> LIVE PREVIEW</span></div>
-            <div class="preview-bottom preview-ui"><div class="arena-caption"><span class="mini-pill">THE ARENA</span><strong>Small world. Big rat energy.</strong><span>A level playing field. A very uneven moral compass.</span></div><button id="expand-button" class="expand-button" aria-label="Expand arena preview" title="Expand arena preview"><svg><use href="#i-expand"/></svg></button></div>
+            <div class="preview-top preview-ui"><span class="arena-name"><span id="arena-number" class="arena-mark">01</span> <span id="arena-title">CRUMB QUARTER</span></span><span class="live-label"><span></span> LIVE PREVIEW</span></div>
+            <div class="preview-bottom preview-ui"><div class="arena-caption"><span class="mini-pill">THE ARENA</span><strong id="arena-description">Busy streets below. A cheese heist above.</strong><span id="arena-detail">Market streets, rooftop ramps, and two bell towers.</span></div><button id="expand-button" class="expand-button" aria-label="Expand arena preview" title="Expand arena preview"><svg><use href="#i-expand"/></svg></button></div>
             <div id="scene-loading" class="scene-loading"><svg><use href="#i-cheese"/></svg><span>Scattering the crumbs…</span></div>
-            <div class="arena-coordinate preview-ui">60 × 60 &nbsp; / &nbsp; SYMMETRIC ARENA</div>
+            <div id="arena-coordinate" class="arena-coordinate preview-ui">120 × 120 / 3 LEVELS</div>
           </div>
           <div class="arena-sticker"><svg><use href="#i-rat"/></svg><span>100% FREE-RANGE<br/><strong>WILL WORK FOR CHEESE</strong></span></div>
         </div>
+      </section>
+
+      <section class="map-selection" aria-labelledby="maps-title">
+        <div class="maps-heading"><div><span class="eyebrow">PICK YOUR STOMPING GROUND</span><h2 id="maps-title">Same rats. New heights.</h2></div><p>Three arenas. More room for bad decisions.<br/>Select a map to explore its live preview.</p></div>
+        <div id="map-options" class="map-options" role="group" aria-label="Choose an arena"></div>
+        <div class="map-tip"><span>↑ TAKE THE HIGH GROUND</span> <b>Space</b> to jump · <b>W / S</b> to climb ladders · Lead your rats up the ramps.</div>
       </section>
 
       <section class="rules-strip" aria-label="The game in three steps">
@@ -74,28 +104,29 @@
         <article class="rule-card"><span class="rule-icon poison-icon"><svg><use href="#i-poison"/></svg></span><div><div class="rule-heading"><span>03 / SABOTAGE</span><h2>Play a little dirty.</h2></div><p>Poison their cheese. Scatter their rats.<br class="wide-only"/> Try not to look too pleased.</p></div></article>
       </section>
     </main>
-    <footer><span>NO DOWNLOADS. NO ACCOUNTS. JUST RATS.</span><span class="footer-right"><span class="version">v0.2</span> MADE FOR A LITTLE FRIENDLY RIVALRY <svg><use href="#i-rat"/></svg></span></footer>
+    <footer><span>NO DOWNLOADS. NO ACCOUNTS. JUST RATS.</span><span class="footer-right"><span class="version">v0.3.1</span> MADE FOR A LITTLE FRIENDLY RIVALRY <svg><use href="#i-rat"/></svg></span></footer>
   </div>
 
   <div id="game-hud" class="game-hud" hidden>
     <div class="scoreboard"><div class="score-side home-score"><span class="score-label"><span></span> YOUR BASE</span><strong id="home-score">0</strong><span class="poison-timer" id="home-poison"></span></div><div class="timer-box"><span id="phase-label">RAT RACE</span><strong id="timer">3:00</strong></div><div class="score-side rival-score"><span class="score-label"><span></span> CRUMB BOT</span><strong id="rival-score">0</strong><span class="poison-timer" id="rival-poison"></span></div></div>
     <div class="game-top-left"><span class="game-wordmark">RAT RACE.</span><button id="pause-button" class="hud-button" aria-label="Pause game"><svg><use href="#i-pause"/></svg><span>ESC</span></button></div>
-    <div class="minimap-wrap"><div><span>THE CRUMB YARD</span><span>N ↑</span></div><canvas id="minimap" width="360" height="360" aria-label="Arena minimap: yellow home, red rival, white rats, green poison"></canvas><div class="map-legend"><span><i class="yellow-dot"></i> YOU</span><span><i class="white-dot"></i> RATS</span><span><i class="green-dot"></i> POISON</span></div></div>
+    <div class="minimap-wrap"><div><span id="minimap-title">CRUMB QUARTER</span><span>N ↑</span></div><canvas id="minimap" width="360" height="360" aria-label="Arena minimap: yellow home, red rival, white rats, green poison"></canvas><div class="map-legend"><span><i class="yellow-dot"></i> YOU</span><span><i class="white-dot"></i> RATS</span><span><i class="green-dot"></i> POISON</span></div></div>
+    <div id="altitude" class="altitude">GROUND LEVEL</div>
     <div class="crosshair"><span></span><span></span></div>
     <div class="center-status"><span id="followers-pill"><svg><use href="#i-rat"/></svg><b id="followers">0</b> RATS FOLLOWING</span><p id="context-hint">Find the rats. Make a good first impression.</p></div>
     <div class="inventory cheese-inventory"><div class="inventory-icon"><svg><use href="#i-cheese"/></svg></div><div class="inventory-details"><div class="inventory-heading"><span>RIGHT HAND · CHEESE</span><strong><b id="cheese">100</b><small> / 100</small></strong></div><div class="cheese-meter"><span id="cheese-fill"></span></div><span id="cheese-hint">Your most persuasive argument.</span></div></div>
-    <div class="game-controls"><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> MOVE</span><span><kbd>SHIFT</kbd> SPRINT</span><span><svg><use href="#i-mouse"/></svg> LOOK</span></div>
+    <div class="game-controls"><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> MOVE</span><span><kbd>SHIFT</kbd> SPRINT</span><span><kbd>SPACE</kbd> JUMP</span><span><kbd>W/S</kbd> CLIMB</span></div>
     <div class="inventory poison-inventory"><div class="inventory-icon"><svg><use href="#i-poison"/></svg></div><div class="inventory-details"><div class="inventory-heading"><span>LEFT HAND · POISON</span><strong id="poison-held">EMPTY</strong></div><span id="poison-hint">Walk over a green pickup to collect.</span><span class="throw-key"><svg><use href="#i-mouse"/></svg> LEFT CLICK TO THROW</span></div></div>
     <div id="toast" class="toast" role="status"></div>
   </div>
 
   <div id="screen-layer" class="screen-layer" hidden>
     <div id="countdown-screen" class="countdown-screen" hidden><span>FOLLOW YOUR NOSE.</span><strong id="countdown-number">3</strong><p>Get the most rats home before time runs out.</p></div>
-    <section id="pause-screen" class="match-dialog" hidden aria-labelledby="pause-title"><span class="dialog-eyebrow">TAKE A BREATHER</span><svg class="dialog-rat"><use href="#i-rat"/></svg><h2 id="pause-title">RATS CAN WAIT.</h2><p id="pause-description">Your match is paused. The cheese is safe. For now.</p><button id="resume-button" class="primary-button"><span>BACK TO THE CHASE</span><svg><use href="#i-arrow"/></svg></button><button id="quit-button" class="secondary-button">Back to the yard</button><div class="pause-controls"><span><kbd>W A S D</kbd> move</span><span><kbd>SHIFT</kbd> sprint</span><span><kbd>CLICK</kbd> throw</span></div></section>
-    <section id="end-screen" class="match-dialog" hidden aria-labelledby="end-title"><span class="dialog-eyebrow" id="end-eyebrow">THE CRUMBS HAVE SETTLED</span><svg class="dialog-rat"><use href="#i-rat"/></svg><h2 id="end-title">TOP OF THE<br/>FOOD CHAIN.</h2><p id="end-description">A small victory. A very large ego.</p><div class="end-scores"><div><span>YOUR RATS</span><strong id="end-home">0</strong></div><span>—</span><div><span>BOT'S RATS</span><strong id="end-rival">0</strong></div></div><button id="rematch-button" class="primary-button"><span>ONE MORE RAT RACE</span><svg><use href="#i-arrow"/></svg></button><button id="lobby-button" class="secondary-button">Back to the yard</button></section>
+    <section id="pause-screen" class="match-dialog" hidden aria-labelledby="pause-title"><span class="dialog-eyebrow">TAKE A BREATHER</span><svg class="dialog-rat"><use href="#i-rat"/></svg><h2 id="pause-title">RATS CAN WAIT.</h2><p id="pause-description">Your match is paused. The cheese is safe. For now.</p><button id="resume-button" class="primary-button"><span>BACK TO THE CHASE</span><svg><use href="#i-arrow"/></svg></button><button id="quit-button" class="secondary-button">Choose another map</button><div class="pause-controls"><span><kbd>W A S D</kbd> move</span><span><kbd>SHIFT</kbd> sprint</span><span><kbd>SPACE</kbd> jump</span><span><kbd>CLICK</kbd> throw</span></div></section>
+    <section id="end-screen" class="match-dialog" hidden aria-labelledby="end-title"><span class="dialog-eyebrow" id="end-eyebrow">THE CRUMBS HAVE SETTLED</span><svg class="dialog-rat"><use href="#i-rat"/></svg><h2 id="end-title">TOP OF THE<br/>FOOD CHAIN.</h2><p id="end-description">A small victory. A very large ego.</p><div class="end-scores"><div><span>YOUR RATS</span><strong id="end-home">0</strong></div><span>—</span><div><span>BOT'S RATS</span><strong id="end-rival">0</strong></div></div><button id="rematch-button" class="primary-button"><span>ONE MORE RAT RACE</span><svg><use href="#i-arrow"/></svg></button><button id="lobby-button" class="secondary-button">Choose another map</button></section>
   </div>
 
-  <dialog id="help-dialog" class="info-dialog"><button class="close-dialog icon-button" aria-label="Close instructions"><svg><use href="#i-close"/></svg></button><span class="dialog-eyebrow">A CRASH COURSE IN RAT ECONOMICS</span><h2>CHEESE TALKS.<br/>RATS LISTEN.</h2><p>Get more of the 10 rats into your base than Crumb Bot before the 3-minute timer ends. A tie goes to sudden death: the first new capture wins.</p><div class="help-rules"><p><svg><use href="#i-cheese"/></svg><span><b>Keep it cheesy.</b> Stand in your base for 1 second to refill to 100. Each follower eats 2 cheese per second.</span></p><p><svg><use href="#i-rat"/></svg><span><b>Home is where the cheese is.</b> Free rats follow the best cheese-to-distance ratio within 12 units. Once they enter a healthy base, they stay and eat its unlimited cheese, ignoring both players. Only poison makes them leave.</span></p><p><svg><use href="#i-poison"/></svg><span><b>Cause a stink.</b> Carry cheese in your right hand and collected poison in your left. Aim near the center of a base and left click to throw poison. A hit disables its cheese for 15 seconds and scatters its rats. Pickups return after 20 seconds.</span></p></div><div class="help-controls"><span><kbd>W A S D</kbd> Move</span><span><kbd>SHIFT</kbd> Sprint</span><span><kbd>MOUSE</kbd> Look</span><span><kbd>CLICK</kbd> Throw poison</span><span><kbd>ESC</kbd> Pause</span></div><button class="primary-button close-dialog"><span>GOT IT. LET'S GET CHEESY.</span><svg><use href="#i-check"/></svg></button></dialog>
+  <dialog id="help-dialog" class="info-dialog"><button class="close-dialog icon-button" aria-label="Close instructions"><svg><use href="#i-close"/></svg></button><span class="dialog-eyebrow">A CRASH COURSE IN RAT ECONOMICS</span><h2>CHEESE TALKS.<br/>RATS LISTEN.</h2><p>Get more of the 10 rats into your base than Crumb Bot before the 3-minute timer ends. A tie goes to sudden death: the first new capture wins.</p><div class="help-rules"><p><svg><use href="#i-cheese"/></svg><span><b>Keep it cheesy.</b> Stand in your base for 1 second to refill to 100. Each follower eats 2 cheese per second.</span></p><p><svg><use href="#i-rat"/></svg><span><b>Home is where the cheese is.</b> Free rats follow the best cheese-to-distance ratio within 12 units. Once they enter a healthy base, they stay and eat its unlimited cheese, ignoring both players. Only poison makes them leave.</span></p><p><svg><use href="#i-poison"/></svg><span><b>Cause a stink.</b> Carry cheese in your right hand and collected poison in your left. Aim near the center of a base and left click to throw poison. A hit disables its cheese for 15 seconds and scatters its rats. Pickups return after 20 seconds.</span></p></div><p><b>Take the high ground.</b> Face a ladder and hold W to climb up or S to climb down. Space jumps, including off ladders and ledges. There is no fall damage. Rats and Crumb Bot use the ramps between floors—keep your herd close on the way up.</p><div class="help-controls"><span><kbd>W A S D</kbd> Move</span><span><kbd>SHIFT</kbd> Sprint</span><span><kbd>SPACE</kbd> Jump / leave ladder</span><span><kbd>W / S</kbd> Climb ladder</span><span><kbd>MOUSE</kbd> Look</span><span><kbd>CLICK</kbd> Throw poison</span><span><kbd>ESC</kbd> Pause</span></div><button class="primary-button close-dialog"><span>GOT IT. LET'S GET CHEESY.</span><svg><use href="#i-check"/></svg></button></dialog>
   <dialog id="settings-dialog" class="info-dialog settings-dialog"><button class="close-dialog icon-button" aria-label="Close settings"><svg><use href="#i-close"/></svg></button><span class="dialog-eyebrow">MAKE YOURSELF AT HOME</span><h2>THE LITTLE THINGS.</h2><label class="setting-row" for="sensitivity"><span><b>Mouse sensitivity</b><small>Find your perfect scurry.</small></span><output id="sensitivity-value">1.0×</output></label><input id="sensitivity" type="range" min="0.3" max="2.5" value="1" step="0.1"/><label class="setting-row" for="sound-setting"><span><b>Sound effects</b><small>A little feedback for your cheese heist.</small></span><input type="checkbox" id="sound-setting" checked/></label><p class="settings-note">Settings are saved on this device.</p><button class="primary-button close-dialog"><span>ALL SET</span><svg><use href="#i-check"/></svg></button></dialog>
   <noscript><div class="noscript">Rat Race needs JavaScript enabled to run its 3D arena.</div></noscript>
   <script type="module">

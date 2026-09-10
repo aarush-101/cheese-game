@@ -14,6 +14,7 @@ export const MODEL_FILES = {
   roundTree: 'town/tree-high-round.glb', rock: 'town/rock-large.glb', smallRock: 'town/rock-small.glb',
   redStall: 'town/stall-red.glb', greenStall: 'town/stall-green.glb', hedge: 'town/hedge.glb',
   fence: 'town/fence.glb', window: 'town/wall-window-shutters.glb', roof: 'town/roof-gable.glb',
+  arch: 'town/wall-arch-top.glb', woodWall: 'town/wall-wood.glb', chimney: 'town/chimney.glb', timber: 'town/wall-wood-detail-cross.glb',
   doorway: 'town/wall-doorway-round.glb', redBanner: 'town/banner-red.glb', greenBanner: 'town/banner-green.glb',
 };
 

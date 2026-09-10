@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createGameState, startMatch, stepGame, FIXED_DT, RULES, attractorScore, poisonBase } from '../src/simulation.js';
-import { OBSTACLES, distance, moveBody, findPath, clearPath } from '../src/map.js';
+import { ARENA, OBSTACLES, distance, moveBody, findPath, clearPath } from '../src/map.js';
 
 function game(seed=42){const s=createGameState(seed,{controllers:['human','human']});s.phase='playing';return s;}
 function advance(state,seconds,commands={}){for(let i=0;i<Math.round(seconds/FIXED_DT);i++)stepGame(state,commands);}
@@ -52,10 +52,10 @@ test('capsule slides against cover and cannot tunnel or leave the arena',()=>{
   const o=OBSTACLES[0],p={x:o.x-o.w/2-1,z:o.z};
   moveBody(p,10,0,0.45);assert.ok(p.x<=o.x-o.w/2-0.45+1e-6);
   const before=p.z;moveBody(p,1,1,0.45);assert.ok(p.z>before);
-  moveBody(p,-100,100,0.45);assert.ok(p.x>=-29.55);assert.ok(p.z<=29.55);
+  moveBody(p,-100,100,0.45);assert.ok(p.x>=-ARENA.half+0.45);assert.ok(p.z<=ARENA.half-0.45);
 });
 test('navigation routes around walls without cutting through cover',()=>{
-  const a={x:-7,z:12},b={x:-7,z:20},path=findPath(a,b);
+  const o=OBSTACLES.find(o=>o.kind==='wall'),a={x:o.x-4,z:o.z},b={x:o.x+4,z:o.z},path=findPath(a,b);
   assert.ok(path.length>1);let previous=a;
   for(const waypoint of path){assert.ok(clearPath(previous,waypoint,0.6));previous=waypoint;}
   assert.ok(distance(path.at(-1),b)<0.01);
@@ -150,6 +150,6 @@ test('bot seeks distant poison instead of trying to lure secured rats',()=>{
   });
   s.bases[0].count=3;s.bases[1].count=7;s.players[1].bot.nextDecision=0;
   stepGame(s);assert.equal(s.players[1].bot.mode,'INTERRUPT');
-  assert.deepEqual(s.players[1].bot.target,{x:0,z:0});
-  advance(s,10);assert.ok(s.events.some(e=>e.type==='pickup'&&e.playerId===1));
+  assert.ok(s.pickups.some(p=>distance(p,s.players[1].bot.target)<0.01));
+  advance(s,45);assert.ok(s.events.some(e=>e.type==='pickup'&&e.playerId===1));
 });

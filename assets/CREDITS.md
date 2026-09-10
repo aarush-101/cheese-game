@@ -11,7 +11,8 @@ connection is needed to play.
 | `models/town/*.glb` and texture atlas | Kenney | [Fantasy Town Kit 2.0](https://kenney.nl/assets/fantasy-town-kit) |
 | `models/food/*.glb` and texture atlas | Kenney | [Food Kit](https://kenney.nl/assets/food-kit) |
 
-Source models were downloaded on September 8, 2026. The Quaternius files are the
+Source packs were downloaded on September 8, 2026. Additional arch, timber, chimney,
+and wall modules from the same Kenney pack were added on September 10, 2026. The Quaternius files are the
 GLB versions served by the creators' public model viewers. The Kenney files were
 extracted from the original downloadable packs, with their `License.txt` files
 retained as `LICENSE.txt` alongside the assets.

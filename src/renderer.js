@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { AssetLibrary, ModelAnimator } from './assets.js';
-import { OBSTACLES, BASES, PICKUP_SPAWNS } from './map.js';
+import { getMap, DEFAULT_MAP_ID } from './map.js';
 
 const material = (color, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.85, ...extra });
 
@@ -24,11 +24,11 @@ export class GameRenderer {
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color('#d2e0d9');
     this.scene.fog = new THREE.Fog('#d2e0d9', 65, 150);
-    this.camera = new THREE.PerspectiveCamera(44, 1, 0.055, 300);
+    this.camera = new THREE.PerspectiveCamera(44, 1, 0.055, 700);
     this.camera.rotation.order = 'YXZ';
     this.scene.add(this.camera);
     this.scene.add(new THREE.HemisphereLight('#e2edff', '#786b48', 1.6));
-    const sun = new THREE.DirectionalLight('#ffe2ab', 3.4);
+    const sun = this.sun = new THREE.DirectionalLight('#ffe2ab', 3.4);
     sun.position.set(-26, 48, 23);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
@@ -53,7 +53,8 @@ export class GameRenderer {
       cork: material('#856135'), leather: material('#594437'), sleeve: material('#667a55'),
       skin: material('#d0a17d', { roughness: 0.72 }), crumb: material('#eec44b'),
     };
-    this.buildSky(); this.buildArena(); this.buildActors(); this.buildHands();
+    this.worlds=new Map();
+    this.buildSky(); this.setMap(DEFAULT_MAP_ID); this.buildActors(); this.buildHands();
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(canvas.parentElement);
     this.resize();
@@ -61,21 +62,21 @@ export class GameRenderer {
     this.canvas.dataset.models = String(assets.models.size);
   }
 
-  mesh(geometry, mat, parent = this.scene) {
+  mesh(geometry, mat, parent = this.world ?? this.scene) {
     const mesh = new THREE.Mesh(geometry, mat);
     mesh.castShadow = true; mesh.receiveShadow = true;
     parent.add(mesh);
     return mesh;
   }
 
-  place(name, dimensions, x, y, z, rotation = 0, parent = this.scene) {
+  place(name, dimensions, x, y, z, rotation = 0, parent = this.world ?? this.scene) {
     const instance = this.assets.instance(name, { ...dimensions, rotation });
     instance.root.position.set(x, y, z);
     parent.add(instance.root);
     return instance.root;
   }
 
-  ring(radius, color, x, z, width = 0.08, y = 0.03, parent = this.scene) {
+  ring(radius, color, x, z, width = 0.08, y = 0.03, parent = this.world ?? this.scene) {
     const mesh = this.mesh(new THREE.RingGeometry(radius - width, radius, 96), new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide }), parent);
     mesh.rotation.x = -Math.PI / 2; mesh.position.set(x, y, z); mesh.castShadow = false;
     return mesh;
@@ -136,98 +137,234 @@ export class GameRenderer {
       }
     }
     const map = new THREE.CanvasTexture(canvas); map.colorSpace=THREE.SRGBColorSpace;
-    this.sky = new THREE.Mesh(new THREE.SphereGeometry(200,32,20),new THREE.MeshBasicMaterial({map,side:THREE.BackSide,fog:false,depthWrite:false}));
+    this.sky = new THREE.Mesh(new THREE.SphereGeometry(500,32,20),new THREE.MeshBasicMaterial({map,side:THREE.BackSide,fog:false,depthWrite:false}));
     this.sky.renderOrder=-2; this.scene.add(this.sky);
   }
 
-  buildArena() {
-    const ground = this.mesh(new THREE.PlaneGeometry(60, 60), this.pavingMaterial());
-    ground.rotation.x = -Math.PI / 2; ground.castShadow = false;
-    const foundation = this.mesh(new THREE.BoxGeometry(64, 2.2, 64), this.mats.earth);
-    foundation.position.y = -1.16;
-    const land = this.mesh(new THREE.CylinderGeometry(57, 60, 1.4, 64), material('#8d9b79'));
-    land.position.y = -2.3;
-    const background = this.mesh(new THREE.PlaneGeometry(1000, 1000), material('#c3cfbf'));
-    background.rotation.x = -Math.PI / 2; background.position.y = -3.05; background.castShadow = false;
+  setMap(id) {
+    if(this.map?.id===id)return;
+    this.map=getMap(id);
+    if(this.world)this.world.visible=false;
+    let cached=this.worlds.get(id);
+    if(!cached){
+      this.world=new THREE.Group();this.world.name=this.map.name;this.scene.add(this.world);
+      this.baseVisuals=[];this.pickupMeshes=[];this.buildArena();
+      cached={world:this.world,bases:this.baseVisuals,pickups:this.pickupMeshes};this.worlds.set(id,cached);
+    }
+    this.world=cached.world;this.world.visible=true;this.baseVisuals=cached.bases;this.pickupMeshes=cached.pickups;
+    this.canvas.dataset.map=id;
+    const h=this.map.half+10;
+    Object.assign(this.sun.shadow.camera,{left:-h,right:h,top:h,bottom:-h,far:350});
+    this.sun.shadow.camera.updateProjectionMatrix();this.sun.position.set(-65,110,50);
+  }
 
-    // Authored stone modules form the same 60 × 60 collision boundary.
-    for (const sign of [-1, 1]) {
-      for (let p = -28.5; p <= 28.5; p += 3) {
-        this.place('wall', { width: 3.03, height: 3, depth: 0.8 }, p, 0, sign * 30.45, Math.PI / 2);
-        this.place('wall', { width: 0.8, height: 3, depth: 3.03 }, sign * 30.45, 0, p);
+  buildArena() {
+    const m=this.map,h=m.half,forest=m.theme==='forest',ruins=m.theme==='ruins';
+    this.floorMat=this.pavingMaterial();this.floorMat.map.repeat.set(m.size/7.5,m.size/7.5);
+    if(forest)this.floorMat.color.set('#a9ad85');else if(ruins)this.floorMat.color.set('#b5c7c9');
+    const ground=this.mesh(new THREE.PlaneGeometry(m.size,m.size),this.floorMat);
+    ground.rotation.x=-Math.PI/2;ground.castShadow=false;
+    const foundation=this.mesh(new THREE.BoxGeometry(m.size+2,2.2,m.size+2),this.mats.earth);foundation.position.y=-1.16;
+    const background=this.mesh(new THREE.PlaneGeometry(1500,1500),material(forest?'#839278':ruins?'#a9bec2':'#c3cfbf'));
+    background.rotation.x=-Math.PI/2;background.position.y=-2.3;background.castShadow=false;
+    // Repeating authored wall and pillar modules form the playable perimeter.
+    for(const sign of [-1,1]) {
+      for(let p=-h+3;p<h;p+=6) {
+        this.place('wall',{width:6.02,height:4,depth:0.8},p,0,sign*(h+0.4),Math.PI/2);
+        this.place('wall',{width:0.8,height:4,depth:6.02},sign*(h+0.4),0,p);
       }
-      for (let p = -30; p <= 30; p += 10) {
-        this.place('pillar', { width: 1.1, depth: 1.1, height: 3.5 }, p, 0, sign * 30.45);
-        this.place('pillar', { width: 1.1, depth: 1.1, height: 3.5 }, sign * 30.45, 0, p);
-      }
-    }
-    for (const o of OBSTACLES) {
-      if (o.kind === 'crate') {
-        this.place('barrel', { width: o.w, height: o.h, depth: o.d }, o.x, 0, o.z, o.id * 0.37);
-        const band = this.ring(o.w * 0.5 + 0.12, '#9b977a', o.x, o.z, 0.035);
-        band.material.transparent = true; band.material.opacity = 0.4;
-      } else if (o.kind === 'wall') {
-        const alongX = o.w > o.d, length = Math.max(o.w, o.d), count = Math.ceil(length / 2.5);
-        for (let i = 0; i < count; i++) {
-          const offset = -length / 2 + (i + 0.5) * length / count;
-          const rock = this.place('rock', { width: alongX ? length / count * 1.03 : o.w, height: o.h * (i % 2 ? 0.88 : 1), depth: alongX ? o.d : length / count * 1.03 },
-            o.x + (alongX ? offset : 0), 0, o.z + (alongX ? 0 : offset), i * Math.PI);
-          rock.traverse(node => {
-            if (!node.isMesh) return;
-            node.material = material(i % 2 ? '#97988a' : '#a4a496');
-          });
-        }
-      } else {
-        this.place('cart', { width: o.w, depth: o.d, height: o.h * 0.88 }, o.x, 0, o.z, Math.PI / 2);
-        for (let i = 0; i < 5; i++) this.place(i % 2 ? 'cabbage' : 'pumpkin', { height: o.h * 0.24 }, o.x + (i - 2) * 0.42, o.h * 0.66, o.z + (i % 2) * 0.28);
+      for(let p=-h;p<=h;p+=12) {
+        this.place('pillar',{width:1.1,height:4.6,depth:1.1},p,0,sign*(h+0.4));
+        this.place('pillar',{width:1.1,height:4.6,depth:1.1},sign*(h+0.4),0,p);
       }
     }
-    this.ring(7.5, '#dbd2b4', 0, 0, 0.12);
-    this.ring(7.8, '#d7d0b5', 0, 0, 0.05);
-    for (const base of BASES) this.buildBase(base);
-    for (const spawn of PICKUP_SPAWNS) {
-      this.place('board', { width: 1.7, height: 0.12, depth: 1.7 }, spawn.x, 0.03, spawn.z);
-      this.ring(1.15, '#94b45a', spawn.x, spawn.z, 0.08);
-      const bottle = this.poisonModel(); bottle.position.set(spawn.x, 0.9, spawn.z);
-      this.scene.add(bottle); this.pickupMeshes.push(bottle);
+    if(ruins){
+      const water=this.mesh(new THREE.PlaneGeometry(11,m.size-1),material('#71a8ac',{transparent:true,opacity:0.68,roughness:0.18,metalness:0.2}));
+      water.rotation.x=-Math.PI/2;water.position.y=0.016;water.castShadow=false;
+      for(let i=0;i<30;i++){const ripple=this.mesh(new THREE.PlaneGeometry(2+i%4*0.5,0.07),new THREE.MeshBasicMaterial({color:'#c2e4df',transparent:true,opacity:0.45}));ripple.rotation.x=-Math.PI/2;ripple.position.set(Math.sin(i*2.2)*3,0.02,-m.half+3+i*(m.size-6)/30);}
+    }
+    for(const p of m.platforms)this.buildDeck(p);
+    for(const r of m.ramps)this.buildRamp(r);
+    for(const o of m.obstacles)this.buildObstacle(o);
+    for(const l of m.ladders)this.buildLadder(l);
+    this.ring(7.5,'#dbd2b4',0,0,0.12);this.ring(7.8,'#d7d0b5',0,0,0.05);
+    for(const b of m.bases)this.buildBase(b);
+    for(const p of m.pickups){
+      this.place('board',{width:1.7,height:0.12,depth:1.7},p.x,p.y+0.03,p.z);
+      this.ring(1.15,'#94b45a',p.x,p.z,0.08,p.y+0.03);
+      const bottle=this.poisonModel();bottle.position.set(p.x,p.y+0.9,p.z);this.world.add(bottle);this.pickupMeshes.push(bottle);
+      const label=this.label('POISON ↑','#3e542e','#dce5a6',320);label.scale.set(2.2,0.88,1);label.position.set(p.x,p.y+2.5,p.z);this.world.add(label);
+    }
+    // Broad, readable approach lanes and colored base wayfinding.
+    for(const b of m.bases){
+      for(let i=0;i<7;i++){
+        const t=(i+1)/9,x=b.x*(1-t),z=b.z*(1-t);
+        const mark=this.mesh(new THREE.ConeGeometry(0.5,0.85,3),material(b.color));
+        mark.rotation.x=-Math.PI/2;mark.rotation.z=b.id?Math.PI/4:-Math.PI*0.75;mark.scale.z=0.025;mark.position.set(x,0.025,z);mark.castShadow=false;
+      }
     }
     this.buildSurroundings();
+    this.batchStatics();
+  }
+
+  buildDeck(p) {
+    const wood=this.map.theme==='forest',mat=wood?this.woodMaterial():this.floorMat;
+    const slab=this.mesh(this.surfaceGeometry(new THREE.BoxGeometry(p.w,p.h,p.d),wood),mat);slab.position.set(p.x,p.y+p.h/2,p.z);
+    // Edge beams, masonry courses and inset plank seams give platforms substance.
+    const edge=material(wood?'#624934':'#a6a696');
+    for(const side of [-1,1]){
+      const beam=this.mesh(new THREE.BoxGeometry(p.w+0.15,0.22,0.22),edge);beam.position.set(p.x,p.y+0.18,p.z+side*p.d/2);
+      const end=this.mesh(new THREE.BoxGeometry(0.22,0.22,p.d),edge);end.position.set(p.x+side*p.w/2,p.y+0.18,p.z);
+    }
+    if(this.map.theme==='ruins'&&p.w>p.d*2){
+      // Vaults sit high above the pedestrian clearance, between structural piers.
+      for(const side of [-1,1])this.place('arch',{width:p.w-1.4,height:2.1,depth:0.45},p.x,p.y-2.1,p.z+side*(p.d/2-0.7),Math.PI/2);
+    }
+    if(p.h+p.y>=this.map.highest){
+      this.place('greenBanner',{height:3},p.x-p.w/2+0.7,p.y+p.h,p.z+p.d/2-0.7,Math.PI/2);
+      this.place('lantern',{height:1.1},p.x+p.w/2-0.7,p.y+p.h+0.4,p.z-p.d/2+0.7);
+    }
+  }
+
+  surfaceGeometry(geometry,wood=false) {
+    const p=geometry.attributes.position,n=geometry.attributes.normal,uv=geometry.attributes.uv;
+    const unit=wood?8:this.map.size;
+    for(let i=0;i<p.count;i++){
+      const ax=Math.abs(n.getX(i)),ay=Math.abs(n.getY(i)),az=Math.abs(n.getZ(i));
+      uv.setXY(i,(ax>ay&&ax>az?p.getZ(i):p.getX(i))/unit,(ay>=ax&&ay>=az?p.getZ(i):p.getY(i))/unit);
+    }
+    uv.needsUpdate=true;return geometry;
+  }
+
+  woodMaterial() {
+    if(this.plankMat)return this.plankMat;
+    const c=document.createElement('canvas');c.width=c.height=256;const ctx=c.getContext('2d');
+    ctx.fillStyle='#493c2c';ctx.fillRect(0,0,256,256);
+    for(let i=0;i<8;i++){
+      ctx.fillStyle=['#ac8b5e','#98794f','#b5976a'][i%3];ctx.fillRect(2,i*32+1,252,30);
+      ctx.strokeStyle='#634e3c55';ctx.lineWidth=1;
+      for(let j=0;j<4;j++){ctx.beginPath();ctx.moveTo(5,i*32+5+j*6);ctx.bezierCurveTo(60,i*32+2+j*6,180,i*32+9+j*6,251,i*32+4+j*6);ctx.stroke();}
+      ctx.fillStyle='#433e32';ctx.fillRect(8,i*32+7,2,2);ctx.fillRect(244,i*32+23,2,2);
+    }
+    const tex=new THREE.CanvasTexture(c);tex.colorSpace=THREE.SRGBColorSpace;tex.wrapS=tex.wrapT=THREE.RepeatWrapping;tex.repeat.set(3,4);
+    this.plankMat=material('#ffffff',{map:tex,bumpMap:tex,bumpScale:0.035});return this.plankMat;
+  }
+
+  buildRamp(r) {
+    const len=r.axis==='x'?r.w:r.d,width=r.axis==='x'?r.d:r.w;
+    const shape=new THREE.Shape();shape.moveTo(-len/2,0);shape.lineTo(len/2,0);shape.lineTo(len/2,r.high-r.low);shape.closePath();
+    const geometry=new THREE.ExtrudeGeometry(shape,{depth:width,bevelEnabled:false,steps:1});geometry.translate(0,0,-width/2);
+    const ramp=this.mesh(this.surfaceGeometry(geometry,this.map.theme==='forest'),this.map.theme==='forest'?this.woodMaterial():this.floorMat);
+    ramp.rotation.y=r.axis==='x'?(r.direction>0?0:Math.PI):(r.direction>0?-Math.PI/2:Math.PI/2);
+    ramp.position.set(r.x,r.low,r.z);
+    // Thin cross-treads follow the actual slope; the collision surface is smooth.
+    const count=Math.ceil(len/1.4),treadMat=material(this.map.theme==='forest'?'#695037':'#989d91');
+    for(let i=1;i<count;i++){
+      const t=i/count,offset=(t-0.5)*len*r.direction;
+      const tread=this.mesh(new THREE.BoxGeometry(r.axis==='x'?0.1:width,0.035,r.axis==='x'?width:0.1),treadMat);
+      tread.position.set(r.x+(r.axis==='x'?offset:0),r.low+t*(r.high-r.low)+0.015,r.z+(r.axis==='z'?offset:0));
+    }
+    const sign=this.label('RAT ROUTE ↑','#4d5633','#ece3bb',320);sign.scale.set(2.5,1,1);
+    sign.position.set(r.x+(r.axis==='x'?-r.direction*len/2:width/2+0.3),r.low+1.3,r.z+(r.axis==='z'?-r.direction*len/2:width/2+0.3));this.world.add(sign);
+  }
+
+  buildLadder(l) {
+    const root=new THREE.Group();root.position.set(l.x,l.bottom,l.z);root.rotation.y=l.nx?Math.PI/2:0;this.world.add(root);
+    const length=l.top-l.bottom;
+    for(const side of [-1,1]){
+      const rail=this.mesh(new THREE.CylinderGeometry(0.07,0.07,length+0.8,10),this.mats.brass,root);rail.position.set(side*0.47,length/2+0.3,0);
+    }
+    for(let y=0.25;y<=length+0.1;y+=0.35){
+      const rung=this.mesh(new THREE.CylinderGeometry(0.055,0.055,1.02,10),this.mats.brass,root);rung.rotation.z=Math.PI/2;rung.position.y=y;
+    }
+    const sign=this.label('W ↑  /  S ↓','#465034','#f1d57a',320);sign.position.set(l.x+l.nx*0.2,l.bottom+1.9,l.z+l.nz*0.2);sign.scale.set(1.3,0.52,1);this.world.add(sign);
+    const marker=this.ring(0.7,'#e9c55d',l.x,l.z,0.09,l.bottom+0.025);marker.material.transparent=true;marker.material.opacity=0.85;
+  }
+
+  buildObstacle(o) {
+    const y=o.y??0,forest=this.map.theme==='forest';
+    if(o.kind==='pillar'){
+      const support=this.place(forest?'woodWall':'pillar',{width:o.w,height:o.h,depth:o.d},o.x,y,o.z);
+      if(!forest){this.supportMat??=material('#b1b5a6');support.traverse(n=>{if(n.isMesh)n.material=this.supportMat;});}
+    }else if(o.kind==='rail'){
+      const wood=material(forest?'#5c4736':'#817f6b');
+      for(const h of [0.32,0.7]){const bar=this.mesh(new THREE.BoxGeometry(o.w,0.12,o.d),wood);bar.position.set(o.x,y+h,o.z);}
+      for(let x=-o.w/2;x<=o.w/2;x+=2.5){const post=this.mesh(new THREE.CylinderGeometry(0.085,0.085,o.h,8),wood);post.position.set(o.x+x,y+o.h/2,o.z);}
+    }else if(o.kind==='stall'){
+      this.place(o.id%2?'greenStall':'redStall',{width:o.w,height:o.h,depth:o.d},o.x,y,o.z,Math.PI/2);
+      for(let i=0;i<6;i++)this.place(i%2?'bread':'cheese',{height:0.35},o.x+(i-2.5)*0.7,y+0.9,o.z);
+    }else if(o.kind==='crate'){
+      this.place('barrel',{width:o.w,height:o.h,depth:o.d},o.x,y,o.z,o.id*0.37);
+    }else if(o.kind==='tree'){
+      // Trunk defines collision; the canopy clears the player above head height.
+      this.place(o.id%4?'tree':'roundTree',{width:o.visualWidth,height:o.visualHeight,depth:o.visualWidth},o.x,y,o.z,o.id);
+    }else if(o.kind==='building'||o.kind==='ruin'){
+      this.place(forest?'woodWall':'wall',{width:o.w,height:o.h,depth:o.d},o.x,y,o.z,Math.PI/2);
+      if(o.kind==='building'){
+        this.place('roof',{width:o.w+0.6,height:3,depth:o.d+0.6},o.x,y+o.h,o.z,Math.PI/2);
+        this.place('chimney',{height:2.8},o.x+o.w*0.28,y+o.h+1,o.z);
+      }
+      for(const side of [-1,1]){
+        for(const x of [-o.w*0.28,o.w*0.28])this.place('window',{width:1.5,height:1.8,depth:0.2},o.x+x,y+2.1,o.z+side*(o.d/2+0.06),Math.PI/2);
+        this.place('doorway',{width:1.7,height:2.5,depth:0.18},o.x,y,o.z+side*(o.d/2+0.07),Math.PI/2);
+        this.place('lantern',{height:0.8},o.x+1.5,y+2.3,o.z+side*(o.d/2+0.2));
+      }
+      if(forest)for(const side of [-1,1])this.place('timber',{width:o.w,height:o.h,depth:0.1},o.x,y,o.z+side*(o.d/2+0.03),Math.PI/2);
+    }else if(o.kind==='wall'||o.kind==='rock'){
+      if(o.kind==='rock')this.place('rock',{width:o.w,height:o.h,depth:o.d},o.x,y,o.z,o.id);
+      else {
+        this.place('wall',{width:o.w,height:o.h,depth:o.d},o.x,y,o.z,Math.PI/2);
+        for(const side of [-1,1])this.place('pillar',{width:Math.min(o.w,1),height:o.h+0.2,depth:Math.min(o.d,1)},o.x+(o.w>o.d?side*(o.w/2-0.5):0),y,o.z+(o.d>o.w?side*(o.d/2-0.5):0));
+      }
+    }else{
+      this.place('cart',{width:o.w,height:o.h*0.9,depth:o.d},o.x,y,o.z,Math.PI/2);
+      for(let i=0;i<5;i++)this.place(i%2?'cabbage':'pumpkin',{height:o.h*0.24},o.x+(i-2)*o.w*0.14,y+o.h*0.67,o.z+(i%2)*0.2);
+    }
   }
 
   buildSurroundings() {
-    // Set dressing is outside the playable walls, preserving navigation geometry.
-    for (const sign of [-1, 1]) {
-      for (const x of [-20, -9, 8, 20]) {
-        const z = sign * 36.5, h = 5 + Math.abs(x) % 3;
-        this.place('wall', { width: 8, height: h, depth: 5 }, x, -1.7, z, Math.PI / 2);
-        this.place('roof', { width: 9, height: 3, depth: 6.2 }, x, h - 1.75, z, Math.PI / 2);
-        this.place('window', { width: 1.6, height: 2, depth: 0.24 }, x - 2, 0.4, z - sign * 2.56, Math.PI / 2);
-        this.place('window', { width: 1.6, height: 2, depth: 0.24 }, x + 2, 0.4, z - sign * 2.56, Math.PI / 2);
+    const h=this.map.half,forest=this.map.theme==='forest';
+    for(const side of [-1,1]){
+      for(let i=0;i<9;i++){
+        const p=-h+8+i*(this.map.size-16)/8;
+        this.place(i%2?'roundTree':'tree',{height:forest?14+i%4:9+i%4},side*(h+6+i%3),-1.6,p,i);
+        if(forest)this.place('tree',{height:17+i%5},p,-1.6,side*(h+8+i%3),i);
+        else {
+          const bh=5+i%3;
+          this.place('wall',{width:9,height:bh,depth:7},p,-1.6,side*(h+7),Math.PI/2);
+          this.place('roof',{width:10,height:3.5,depth:8},p,bh-1.6,side*(h+7),Math.PI/2);
+        }
       }
-      for (let i = 0; i < 5; i++) {
-        const z = -27 + i * 13, x = sign * (34 + i % 2 * 2);
-        this.place(i % 2 ? 'roundTree' : 'tree', { height: 8 + i % 3 }, x, -1.6, z, i);
-        this.place('hedge', { width: 3.5, height: 1.4, depth: 1.2 }, x - sign * 1.8, -1.3, z + 2, Math.PI / 2);
-        this.place('rock', { height: 0.8 }, x + sign * 1.3, -1.4, z + 1.6, i);
+      this.place(side>0?'greenStall':'redStall',{height:6},side*15,-1.5,side*(h+3));
+    }
+    // Ground marks, leaves and petals are instanced; no per-blade draw calls.
+    const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute([-0.06,0,0,0.03,0.38,0.025,0.06,0,0],3));geometry.computeVertexNormals();
+    const count=640,grass=new THREE.InstancedMesh(geometry,material('#71834c',{side:THREE.DoubleSide}),count),t=new THREE.Object3D();
+    for(let i=0;i<count;i++){
+      const side=Math.floor(i/(count/4)),p=(i%(count/4))/(count/4)*this.map.size-h,edge=h-0.5-Math.sin(i*4.3)*0.35;
+      t.position.set(side<2?p:(side===2?edge:-edge),0.01,side<2?(side===0?edge:-edge):p);t.rotation.y=i*2.4;t.scale.setScalar(0.7+i%5*0.17);t.updateMatrix();grass.setMatrixAt(i,t.matrix);
+    }
+    this.world.add(grass);
+  }
+
+  batchStatics() {
+    // GLBs share materials and geometry. Batch repeated static parts by pair;
+    // animated actors, sprites, pickups and poison effects stay independent.
+    this.world.updateMatrixWorld(true);
+    const batches=new Map(),dynamic=new Set([...this.pickupMeshes,...this.baseVisuals.flatMap(v=>[v.pad,v.ring,v.particles])]);
+    const visit=node=>{
+      if(dynamic.has(node))return;
+      if(node.isMesh&&!node.isInstancedMesh&&!node.isSkinnedMesh&&!Array.isArray(node.material)){
+        const key=node.geometry.uuid+node.material.uuid;
+        if(!batches.has(key))batches.set(key,[]);batches.get(key).push(node);
       }
-      this.place(sign === 1 ? 'greenStall' : 'redStall', { height: 5.5 }, -sign * 25, -1.6, sign * 34.5);
-      this.place('cart', { height: 1.8 }, -sign * 32.5, -1.6, sign * 15, 0.6);
-      this.place('barrel', { height: 2.1 }, -sign * 33, -1.6, sign * 19, 0.4);
-      this.place('bag', { height: 1.3 }, -sign * 33.5, -1.6, sign * 20.5);
+      for(const child of node.children)visit(child);
+    };visit(this.world);
+    for(const list of batches.values())if(list.length>=3){
+      const first=list[0],batch=new THREE.InstancedMesh(first.geometry,first.material,list.length);
+      batch.castShadow=first.castShadow;batch.receiveShadow=first.receiveShadow;
+      list.forEach((mesh,i)=>{batch.setMatrixAt(i,mesh.matrixWorld);mesh.removeFromParent();});this.world.add(batch);
     }
-    // Ground-hugging leaves add variation without obscuring rats or collision.
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.Float32BufferAttribute([-0.06,0,0, 0.03,0.4,0.025, 0.06,0,0], 3));
-    geometry.computeVertexNormals();
-    const grass = new THREE.InstancedMesh(geometry, material('#74804e', { side: THREE.DoubleSide }), 240);
-    const transform = new THREE.Object3D();
-    for (let i = 0; i < 240; i++) {
-      const side = Math.floor(i / 60), t = (i % 60) - 29.5, edge = 29.4 + Math.sin(i * 4.3) * 0.3;
-      transform.position.set(side < 2 ? t : (side === 2 ? edge : -edge), 0.01, side < 2 ? (side === 0 ? edge : -edge) : t);
-      transform.rotation.y = i * 2.4; transform.scale.setScalar(0.7 + (i % 5) * 0.17);
-      transform.updateMatrix(); grass.setMatrixAt(i, transform.matrix);
-    }
-    grass.receiveShadow = true; this.scene.add(grass);
   }
 
   cheeseModel(width = 1.1) {
@@ -287,12 +424,12 @@ export class GameRenderer {
     this.ring(4.72, '#f2e5b4', base.x, base.z, 0.035);
     this.place('board', { width: 2.9, depth: 2.9, height: 0.13 }, base.x, 0.03, base.z);
     for (const [x,z,y,width,rot] of [[-0.43,0.05,0.16,1.15,-0.4],[0.48,0.05,0.16,1.15,1.6],[0,0,0.64,0.88,0.5]]) {
-      const cheese = this.cheeseModel(width); cheese.position.set(base.x+x,y,base.z+z); cheese.rotation.y=rot; this.scene.add(cheese);
+      const cheese = this.cheeseModel(width); cheese.position.set(base.x+x,y,base.z+z); cheese.rotation.y=rot; this.world.add(cheese);
     }
     const sign = this.label(base.id===0 ? 'YOUR CHEESE BOARD' : 'RIVAL CHEESE BOARD', base.id===0 ? '#58451a' : '#693726', base.id===0 ? '#f3ce66' : '#eda889');
-    sign.position.set(base.x,4.7,base.z); this.scene.add(sign);
+    sign.position.set(base.x,4.7,base.z); this.world.add(sign);
     const banner = this.place(base.id===0 ? 'greenBanner' : 'redBanner', { height: 2.5 }, base.x + (base.id===0 ? -4.2 : 4.2), 0, base.z + (base.id===0 ? 4.2 : -4.2), Math.PI/2);
-    const particles = new THREE.Group(); particles.position.set(base.x,0,base.z); this.scene.add(particles);
+    const particles = new THREE.Group(); particles.position.set(base.x,0,base.z); this.world.add(particles);
     const particleMaterial = material('#9acd4b', { transparent: true, opacity: 0.6, emissive: '#71a430', emissiveIntensity: 0.4 });
     for(let i=0;i<24;i++) this.mesh(new THREE.SphereGeometry(0.08+(i%3)*0.05,8,6),particleMaterial,particles);
     this.baseVisuals.push({ pad, ring, sign, banner, particles });
@@ -361,6 +498,7 @@ export class GameRenderer {
   }
 
   render(state, {preview=false,time=0,alpha=1,previous=null}={}) {
+    this.setMap(state.mapId);
     this.sky.visible=!preview;
     const delta=this.lastTime===null?0:Math.min(0.1,Math.max(0,time-this.lastTime)); this.lastTime=time;
     const lerp=(a,b)=>a+(b-a)*alpha;
@@ -369,14 +507,14 @@ export class GameRenderer {
     if(state.time<(this.lastSimulationTime??0)){this.throwTime=-Infinity;this.lastThrowId=0;}
     this.lastSimulationTime=state.time;
     if(preview) {
-      const angle=0.68+Math.sin(time*0.04)*0.035, radius=this.camera.aspect<1.1?123:109;
-      this.camera.position.set(Math.sin(angle)*radius,75,Math.cos(angle)*radius);
-      this.camera.fov=44; this.camera.lookAt(0,-2,0);
+      const angle=0.68+Math.sin(time*0.04)*0.035, radius=this.map.size*(this.camera.aspect<1.1?1.73:1.53);
+      this.camera.position.set(Math.sin(angle)*radius,this.map.size*1.03,Math.cos(angle)*radius);
+      this.camera.fov=44; this.camera.lookAt(0,3,0);
       this.rightHand.visible=false; this.leftHand.visible=false;
-      this.scene.fog.near=140; this.scene.fog.far=270;
+      this.scene.fog.near=this.map.size*2; this.scene.fog.far=this.map.size*4;
     } else {
       const p=state.players[0],old=previous?.players[0]??p;
-      this.camera.position.set(lerp(old.x,p.x),1.65+(p.moving?Math.sin(animationTime*(p.sprinting?17:12))*0.026:0),lerp(old.z,p.z));
+      this.camera.position.set(lerp(old.x,p.x),lerp(old.y??p.y,p.y)+1.65+(p.moving?Math.sin(animationTime*(p.sprinting?17:12))*0.026:0),lerp(old.z,p.z));
       this.camera.rotation.set(p.pitch,p.yaw,0,'YXZ');
       this.camera.fov=THREE.MathUtils.lerp(this.camera.fov,p.sprinting?83:76,0.12);
       this.rightHand.visible=true; this.leftHand.visible=p.poison;
@@ -390,12 +528,12 @@ export class GameRenderer {
       const age=state.time-this.throwTime;
       if(age>=0&&age<0.35&&!p.poison){this.leftHand.visible=true;this.leftHand.rotation.x=-Math.sin(age/0.35*Math.PI)*0.9;this.leftHand.position.z-=Math.sin(age/0.35*Math.PI)*0.13;}
       this.canvas.dataset.cheeseHand='right'; this.canvas.dataset.poisonHand=p.poison?'left':'empty';
-      this.scene.fog.near=65; this.scene.fog.far=150;
+      this.scene.fog.near=this.map.size*0.65; this.scene.fog.far=this.map.size*1.7;
     }
     this.camera.updateProjectionMatrix();
     state.rats.forEach((rat,i)=>{
       const actor=this.rats[i],old=previous?.rats[i]??rat;
-      actor.root.position.set(lerp(old.x,rat.x),0.015,lerp(old.z,rat.z));
+      actor.root.position.set(lerp(old.x,rat.x),lerp(old.y??rat.y,rat.y)+0.015,lerp(old.z,rat.z));
       const desired=rat.yaw;
       actor.root.rotation.y+=Math.atan2(Math.sin(desired-actor.root.rotation.y),Math.cos(desired-actor.root.rotation.y))*Math.min(1,delta*12);
       const mode=rat.eating?'eat':rat.fleeUntil>state.time?'run':rat.moving?'walk':'idle';
@@ -411,10 +549,10 @@ export class GameRenderer {
       });
     });
     const bot=state.players[1],old=previous?.players[1]??bot;
-    this.bot.position.set(lerp(old.x,bot.x),0,lerp(old.z,bot.z)); this.bot.rotation.y=bot.yaw;
+    this.bot.position.set(lerp(old.x,bot.x),lerp(old.y??bot.y,bot.y),lerp(old.z,bot.z)); this.bot.rotation.y=bot.yaw;
     this.botAnimator.update(bot.moving?(bot.sprinting?'run':'walk'):'idle',simulationDelta,animationTime);
     this.previewPlayer.visible=preview;
-    this.previewPlayer.position.set(state.players[0].x,0,state.players[0].z); this.previewPlayer.rotation.y=state.players[0].yaw;
+    this.previewPlayer.position.set(state.players[0].x,state.players[0].y,state.players[0].z); this.previewPlayer.rotation.y=state.players[0].yaw;
     if(preview)this.previewAnimator.update('idle',delta,time);
     state.bases.forEach((base,i)=>{
       const visual=this.baseVisuals[i],poisoned=base.poisonedUntil>state.time;
@@ -428,7 +566,7 @@ export class GameRenderer {
     });
     state.pickups.forEach((pickup,i)=>{
       const model=this.pickupMeshes[i]; model.visible=pickup.availableAt<=state.time;
-      model.position.y=0.78+Math.sin(animationTime*2+i)*0.12; model.rotation.y=animationTime*0.6;
+      model.position.y=pickup.y+0.78+Math.sin(animationTime*2+i)*0.12; model.rotation.y=animationTime*0.6;
     });
     const ids=new Set(state.projectiles.map(p=>p.id));
     for(const[id,model]of this.projectileMeshes)if(!ids.has(id)){
