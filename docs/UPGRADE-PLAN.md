@@ -1,6 +1,11 @@
 # Rat Race — map, movement, and animation upgrade plan
 
-Prepared 10 September 2026. Research and design proposal; the changes below have not been implemented. Existing game work is preserved.
+Prepared 10 September 2026. Implementation updated 11 September 2026: the movement,
+two-hand animation, three-map replacement, navigation, architecture, and quality
+changes are now in the game. See [implementation status and verification](IMPLEMENTATION.md)
+for delivered behavior, reproducible checks, captures, and performance targets still
+requiring validation. The original research and proposed acceptance criteria are
+preserved below; historical defect descriptions refer to the pre-upgrade version.
 
 The next release should deliver three recognizably different places to explore, with usable interiors and several connected stories, alongside responsive movement and believable item handling. The current arenas are larger than the original prototype, but they still repeat the same central towers, exposed ramps, thin decks, and surrounding empty floor. Increasing the dimensions again will not, by itself, produce the intended experience.
 

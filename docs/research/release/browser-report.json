@@ -1,0 +1,61 @@
+{
+  "viewport": [
+    1440,
+    900
+  ],
+  "note": "Headless Chrome smoke test; action, pause and screenshot frames are included. Not a hardware benchmark.",
+  "maps": [
+    {
+      "map": "crumb-quarter",
+      "frames": 184,
+      "medianMs": 16.59999990463257,
+      "p95Ms": 18,
+      "calls": 384,
+      "triangles": 349810,
+      "geometries": 247,
+      "textures": 127,
+      "presentationTime": 2.711100000095364,
+      "camera": [
+        -32,
+        1.65,
+        24
+      ],
+      "quality": "medium"
+    },
+    {
+      "map": "gouda-aqueduct",
+      "frames": 185,
+      "medianMs": 16.600000381469727,
+      "p95Ms": 17.5,
+      "calls": 291,
+      "triangles": 261414,
+      "geometries": 391,
+      "textures": 146,
+      "presentationTime": 2.743000000190731,
+      "camera": [
+        -30,
+        1.65,
+        30
+      ],
+      "quality": "medium"
+    },
+    {
+      "map": "timber-hollow",
+      "frames": 182,
+      "medianMs": 16.699999809265137,
+      "p95Ms": 17.399999618530273,
+      "calls": 268,
+      "triangles": 182772,
+      "geometries": 317,
+      "textures": 111,
+      "presentationTime": 2.710700000095362,
+      "camera": [
+        -32,
+        1.65,
+        24
+      ],
+      "quality": "medium"
+    }
+  ],
+  "errors": []
+}

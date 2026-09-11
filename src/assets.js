@@ -5,17 +5,11 @@ import { clone } from 'three/addons/utils/SkeletonUtils.js';
 // Local authored assets, loaded once and instanced with shared geometry/textures.
 // Provenance and original licenses live beside the models in assets/.
 export const MODEL_FILES = {
-  rat: 'characters/rat.glb', adventurer: 'characters/adventurer.glb',
-  cheese: 'food/cheese.glb', barrel: 'food/barrel.glb', board: 'food/cutting-board-round.glb',
-  bread: 'food/bread.glb', apple: 'food/apple.glb', bag: 'food/bag.glb', pumpkin: 'food/pumpkin.glb',
-  cabbage: 'food/cabbage.glb', carrot: 'food/carrot.glb',
-  cart: 'town/cart.glb', wall: 'town/wall.glb', brokenWall: 'town/wall-broken.glb',
-  pillar: 'town/pillar-stone.glb', lantern: 'town/lantern.glb', tree: 'town/tree.glb',
-  roundTree: 'town/tree-high-round.glb', rock: 'town/rock-large.glb', smallRock: 'town/rock-small.glb',
-  redStall: 'town/stall-red.glb', greenStall: 'town/stall-green.glb', hedge: 'town/hedge.glb',
-  fence: 'town/fence.glb', window: 'town/wall-window-shutters.glb', roof: 'town/roof-gable.glb',
-  arch: 'town/wall-arch-top.glb', woodWall: 'town/wall-wood.glb', chimney: 'town/chimney.glb', timber: 'town/wall-wood-detail-cross.glb',
-  doorway: 'town/wall-doorway-round.glb', redBanner: 'town/banner-red.glb', greenBanner: 'town/banner-green.glb',
+  arms:'viewmodel/arms.glb',rat:'characters/rat.glb',adventurer:'characters/adventurer.glb',
+  cheese:'food/cheese.glb',barrel:'food/barrel.glb',board:'food/cutting-board-round.glb',bag:'food/bag.glb',
+  cart:'town/cart.glb',lantern:'town/lantern.glb',tree:'town/tree.glb',roundTree:'town/tree-high-round.glb',
+  redStall:'town/stall-red.glb',greenStall:'town/stall-green.glb',roof:'town/roof-gable.glb',chimney:'town/chimney.glb',
+  redBanner:'town/banner-red.glb',greenBanner:'town/banner-green.glb',
 };
 
 export class AssetLibrary {
@@ -25,7 +19,8 @@ export class AssetLibrary {
     const loader = new GLTFLoader(), models = new Map();
     let loaded = 0;
     await Promise.all(Object.entries(MODEL_FILES).map(async ([name, file]) => {
-      const model = await loader.loadAsync(new URL(`../assets/models/${file}`, import.meta.url).href);
+      const url=new URL(`../assets/models/${file}`,import.meta.url);url.search=new URL(import.meta.url).search;
+      const model = await loader.loadAsync(url.href);
       model.scene.traverse(node => {
         if (!node.isMesh) return;
         node.castShadow = true; node.receiveShadow = true;
@@ -79,21 +74,17 @@ export class ModelAnimator {
     this.headRest = this.head?.quaternion.clone();
   }
 
-  update(mode, delta, time, phase = 0) {
-    const key = mode === 'eat' ? 'idle' : mode;
-    const action = this.actions.get(key) ?? this.actions.get('idle');
-    if (action && action !== this.active) {
-      this.active?.fadeOut(0.18);
-      action.reset().fadeIn(0.18).play();
-      action.time = phase % Math.max(0.01, action.getClip().duration);
-      this.active = action;
+  update(mode,delta,time,phase=0,speed=0){
+    this.blend??={idle:1,walk:0,run:0};this.stride=(this.stride??phase)+delta*speed/(this.model.getObjectByName('Rat')?1.7:3);
+    const moving=mode==='walk'||mode==='run',run=mode==='run'?1:0;
+    const desired={idle:moving?Math.max(0,1-speed/.8):1,walk:moving?(1-run)*Math.min(1,speed/.8):0,run:moving?run:0};
+    for(const key of ['idle','walk','run']){
+      const a=this.actions.get(key);if(!a)continue;
+      if(!a.isScheduled()){a.play();a.time=phase%a.getClip().duration;}
+      this.blend[key]=desired[key]+(this.blend[key]-desired[key])*Math.exp(-12*delta);
+      a.setEffectiveWeight(this.blend[key]);if(key!=='idle'){a.paused=true;a.time=(this.stride%1)*a.getClip().duration;}
     }
-    if (this.head) this.head.quaternion.copy(this.headRest);
-    this.mixer.update(delta);
-    if (mode === 'eat' && this.head) {
-      // Layer a nibbling motion over the authored idle skeleton.
-      this.head.rotateX(0.13 + Math.sin(time * 13 + phase) * 0.08);
-      this.head.rotateZ(Math.sin(time * 7 + phase) * 0.025);
-    }
+    if(this.head)this.head.quaternion.copy(this.headRest);this.mixer.update(delta);
+    if(mode==='eat'&&this.head){this.head.rotateX(.13+Math.sin(time*13+phase)*.08);this.head.rotateZ(Math.sin(time*7+phase)*.025);}
   }
 }

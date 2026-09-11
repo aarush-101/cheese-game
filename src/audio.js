@@ -12,7 +12,14 @@ export class GameAudio {
     osc.start(time);osc.stop(time+duration+0.02);
     osc.onended=()=>{osc.disconnect();gain.disconnect();};
   }
+  update(state){
+    const p=state.players[0],step=Math.floor((p.travel??0)/1.9);
+    if(this.lastTravel!==step&&p.grounded&&p.moving&&state.phase==='playing'){this.tone(p.sprinting?85:105,.065,0,'triangle',.045);this.tone(170,.035,.015,'sine',.012);}
+    this.lastTravel=step;
+  }
   play(type){
+    if(type==='land'){this.tone(75,.1,0,'triangle',.055);return;}
+
     if(type==='capture'){this.tone(620);this.tone(830,0.15,0.07);}
     else if(type==='pickup'){this.tone(420,0.12);this.tone(630,0.12,0.08);this.tone(840,0.2,0.16);}
     else if(type==='poison'){this.tone(160,0.3,0,'triangle');this.tone(110,0.4,0.12,'triangle');}

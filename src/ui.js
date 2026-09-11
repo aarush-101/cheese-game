@@ -19,11 +19,12 @@ export class GameUI {
     for(const b of state.bases)n[b.id===0?'home-poison':'rival-poison'].textContent=b.poisonedUntil>state.time?`POISONED · ${Math.ceil(b.poisonedUntil-state.time)}s`:'';
     n.cheese.textContent=Math.ceil(p.cheese);n['cheese-fill'].style.width=`${p.cheese}%`;
     const map=getMap(state.mapId),atHome=distance(p,home)<=5&&Math.abs(p.y-home.y)<1;
-    $('altitude').textContent=p.ladderId?'CLIMBING · W ↑ / S ↓ · SPACE TO JUMP':`${map.name.toUpperCase()} · ${p.y<0.2?'GROUND LEVEL':`${p.y.toFixed(1)}m ABOVE GROUND`}`;
+    $('altitude').textContent=p.ladderId?'CLIMBING · W ↑ / S ↓ · SPACE TO JUMP':`${map.name.toUpperCase()} · ${Math.abs(p.y)<.2?'GROUND LEVEL':p.y<0?`${Math.abs(p.y).toFixed(1)}m BELOW GROUND`:`${p.y.toFixed(1)}m ABOVE GROUND`}`;
     n['cheese-hint'].textContent=atHome&&p.cheese<99?`Refilling… ${Math.round(p.refillProgress*100)}%`:p.followers?`−${p.followers*2} cheese / sec · ${p.followers} hungry ${p.followers===1?'rat':'rats'}`:p.cheese<30?'Head home to refill your cheese.':'Right hand · always ready to lure.';
     document.querySelector('.cheese-inventory').classList.toggle('low',p.cheese<30);
     n.followers.textContent=p.followers;
-    n['poison-held'].textContent=p.poison?'READY':'EMPTY';
+    n['poison-held'].textContent=p.pendingThrow?'THROWING':p.poison?'READY':'EMPTY';
+    $('sprint-status').textContent=p.ladderId?'CLIMBING':!p.grounded?'AIRBORNE':p.sprinting?'SPRINTING':'SHIFT TO SPRINT';$('sprint-status').classList.toggle('active',p.sprinting);
     n['poison-hint'].textContent=p.poison?'Left hand · aim at a rival cheese board.':'Walk over a green pickup to collect.';
     document.querySelector('.poison-inventory').classList.toggle('held',p.poison);
     n['context-hint'].textContent=p.ladderId?'W / S to climb · Space to jump off.':nearbyLadder(p,map)?'Face the ladder · W to climb up · S to climb down.':state.phase==='sudden-death'?'Next new rat captured wins. Make it yours.':home.poisonedUntil>state.time?'Your base is poisoned. Rally the escapees!':p.cheese<1?'No cheese, no friends. Get home to refill.':atHome&&p.followers?'Rats that enter your base stay here and eat.':atHome?'Your base · stand here for 1 second to refill.':p.followers?'Bring your little entourage back to the yellow base.':'Find the rats. Make a good first impression.';
@@ -38,9 +39,10 @@ export class GameUI {
       }else if(event.type==='pickup'&&event.playerId===0){this.audio.play('pickup');this.notify('Poison acquired. Left click to lob it at a base.');}
       else if(event.type==='poison'){this.audio.play('poison');this.notify(event.baseId===0?'Your base is poisoned! Cheese disabled for 15 seconds.':'Rival base poisoned. Their rats are making an exit.');}
       else if(event.type==='miss'&&event.playerId===0)this.notify('No base hit. That one was just for dramatic effect.');
+      else if(event.type==='land'&&event.playerId===0)this.audio.play('land');
       else if(event.type==='throw'&&event.playerId===0)this.audio.play('throw');
       else if(event.type==='refill'&&event.playerId===0)this.audio.play('refill');
-      else if(event.type==='start'){this.audio.play('start');this.notify('The rat race is on. Follow your nose.');}
+      else if(event.type==='start'){this.audio.play('start');this.notify('Hold SHIFT to sprint · SPACE to jump · Keep your herd close.');}
       else if(event.type==='sudden-death'){this.audio.play('sudden-death');this.notify('Sudden death! The first new capture wins.');}
       else if(event.type==='end')this.audio.play(event.winner===0?'win':'lose');
     }
@@ -48,9 +50,9 @@ export class GameUI {
     this.drawMap(state);
   }
   drawMap(state){
-    const map=getMap(state.mapId),ctx=this.ctx,N=360,scale=N/(map.size+8),coord=n=>(n+map.half+4)*scale;
+    const map=getMap(state.mapId),ctx=this.ctx,N=360,scale=N/(Math.max(map.width,map.depth)+8),coord=n=>(n+map.half+4)*scale;
     ctx.clearRect(0,0,N,N);ctx.fillStyle='#d7ccb4';ctx.fillRect(0,0,N,N);
-    ctx.strokeStyle='#a3967a';ctx.lineWidth=4;ctx.strokeRect(coord(-map.half),coord(-map.half),map.size*scale,map.size*scale);
+    ctx.strokeStyle='#a3967a';ctx.lineWidth=4;ctx.strokeRect(coord(-map.halfX),coord(-map.halfZ),map.width*scale,map.depth*scale);
     for(const o of map.platforms){ctx.fillStyle=o.y>9?'#798d89':'#a9b4a0';ctx.fillRect(coord(o.x-o.w/2),coord(o.z-o.d/2),o.w*scale,o.d*scale);}
     for(const r of map.ramps){ctx.fillStyle='#cbbd86';ctx.fillRect(coord(r.x-r.w/2),coord(r.z-r.d/2),r.w*scale,r.d*scale);}
     for(const l of map.ladders){ctx.fillStyle='#f7e393';ctx.fillRect(coord(l.x)-2,coord(l.z)-3,4,6);}
@@ -62,11 +64,11 @@ export class GameUI {
   }
   drawMapPreview(canvas,map){
     const ctx=canvas.getContext('2d'),W=canvas.width,H=canvas.height;
-    ctx.fillStyle=map.theme==='forest'?'#dce2cf':map.theme==='ruins'?'#d6e0df':'#e8deca';ctx.fillRect(0,0,W,H);
+    ctx.fillStyle=map.theme==='forest'?'#dce2cf':map.theme==='industrial'?'#d6e0df':'#e8deca';ctx.fillRect(0,0,W,H);
     const scale=0.96*W/map.size;
     const project=(x,y,z)=>({x:W/2+(x-z)*scale*0.5,y:H*0.52+(x+z)*scale*0.22-y*2.3});
     const face=(points,color)=>{ctx.fillStyle=color;ctx.beginPath();points.forEach((p,i)=>{const q=project(...p);if(i)ctx.lineTo(q.x,q.y);else ctx.moveTo(q.x,q.y);});ctx.closePath();ctx.fill();};
-    face([[-map.half,0,-map.half],[map.half,0,-map.half],[map.half,0,map.half],[-map.half,0,map.half]],'#b9b79c');
+    face([[-map.halfX,0,-map.halfZ],[map.halfX,0,-map.halfZ],[map.halfX,0,map.halfZ],[-map.halfX,0,map.halfZ]],'#b9b79c');
     const boxes=[...map.obstacles.filter(o=>o.kind!=='pillar'),...map.platforms].sort((a,b)=>(a.x+a.z)-(b.x+b.z));
     for(const o of boxes){const x=o.x-o.w/2,z=o.z-o.d/2,y=o.y??0,t=y+o.h;
       face([[x,y,z+o.d],[x+o.w,y,z+o.d],[x+o.w,t,z+o.d],[x,t,z+o.d]],'#8b927b');

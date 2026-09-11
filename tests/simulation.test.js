@@ -55,7 +55,7 @@ test('capsule slides against cover and cannot tunnel or leave the arena',()=>{
   moveBody(p,-100,100,0.45);assert.ok(p.x>=-ARENA.half+0.45);assert.ok(p.z<=ARENA.half-0.45);
 });
 test('navigation routes around walls without cutting through cover',()=>{
-  const o=OBSTACLES.find(o=>o.kind==='wall'),a={x:o.x-4,z:o.z},b={x:o.x+4,z:o.z},path=findPath(a,b);
+  const o=OBSTACLES.find(o=>o.kind==='crate'),a={x:o.x-4,z:o.z},b={x:o.x+4,z:o.z},path=findPath(a,b);
   assert.ok(path.length>1);let previous=a;
   for(const waypoint of path){assert.ok(clearPath(previous,waypoint,0.6));previous=waypoint;}
   assert.ok(distance(path.at(-1),b)<0.01);
@@ -86,7 +86,7 @@ test('poison releases secured rats and they can follow cheese after fleeing',()=
 });
 test('throwing from the left hand leaves right-hand cheese intact',()=>{
   const s=game();parkRats(s);const p=s.players[0];Object.assign(p,{x:0,z:4,poison:true,cheese:74,yaw:0});
-  stepGame(s,{0:{throw:true,yaw:0}});assert.equal(p.poison,false);assert.equal(p.cheese,74);
+  stepGame(s,{0:{throw:true,yaw:0}});assert.equal(p.poison,true);assert.ok(p.pendingThrow);advance(s,.2);assert.equal(p.poison,false);assert.equal(p.cheese,74);
   assert.equal(s.projectiles.length,1);assert.ok(s.projectiles[0].x<p.x);
 });
 test('a pickup holds one poison and returns 20 seconds after collection',()=>{
@@ -97,7 +97,7 @@ test('a pickup holds one poison and returns 20 seconds after collection',()=>{
 });
 test('lobbed projectile hits a base, while a miss has no gameplay effect',()=>{
   const s=game();parkRats(s);const p=s.players[0],b=s.bases[1];Object.assign(p,{x:b.x,z:b.z+12,poison:true,yaw:0,pitch:0});
-  stepGame(s,{0:{throw:true}});assert.equal(p.poison,false);assert.equal(s.projectiles.length,1);
+  stepGame(s,{0:{throw:true}});assert.equal(p.poison,true);advance(s,.2);assert.equal(p.poison,false);assert.equal(s.projectiles.length,1);
   advance(s,3);assert.ok(b.poisonedUntil>s.time);assert.equal(s.projectiles.length,0);
   const miss=game();parkRats(miss);Object.assign(miss.players[0],{x:0,z:0,poison:true,yaw:0,pitch:0});
   stepGame(miss,{0:{throw:true}});advance(miss,3);assert.ok(miss.bases.every(base=>base.poisonedUntil===0));assert.ok(miss.events.some(e=>e.type==='miss'));
@@ -139,7 +139,7 @@ test('bot carrying poison attacks an enemy base with at least three rats',()=>{
   Object.assign(s.players[0],{x:0,z:0});
   s.rats.slice(0,3).forEach((r,i)=>Object.assign(r,{x:home.x+i*0.2,z:home.z}));home.count=3;
   Object.assign(bot,{x:home.x,z:home.z-11,poison:true});bot.bot.nextDecision=0;
-  stepGame(s);assert.equal(bot.bot.mode,'INTERRUPT');assert.equal(bot.poison,false);assert.equal(s.projectiles.length,1);
+  stepGame(s);assert.equal(bot.bot.mode,'INTERRUPT');assert.ok(bot.pendingThrow);advance(s,.2);assert.equal(bot.poison,false);assert.equal(s.projectiles.length,1);
   advance(s,2);assert.ok(home.poisonedUntil>s.time);assert.ok(s.events.some(e=>e.type==='poison'&&e.baseId===0));
 });
 test('bot seeks distant poison instead of trying to lure secured rats',()=>{

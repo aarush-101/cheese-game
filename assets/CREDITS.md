@@ -1,8 +1,8 @@
 # Model credits
 
-Models are stored locally and loaded with Three.js GLTFLoader. They are used under
-their original CC0 1.0 public-domain dedications. No purchase, login, or asset-server
-connection is needed to play.
+Models are stored locally and loaded with Three.js GLTFLoader. The third-party
+models listed below are used under their original CC0 1.0 public-domain dedications.
+No purchase, login, or asset-server connection is needed to play.
 
 | Local files | Author | Source |
 | --- | --- | --- |
@@ -21,7 +21,16 @@ Runtime changes: scale/orientation normalization, team and fur colors, roughness
 adjustments, animation blending, and an extra head-nibbling motion over rat idle.
 Original model and animation files are otherwise unchanged.
 
-The hand meshes, Swiss cheese wedge, glass poison flask, nibbling crumbs, sky, paving texture, and UI artwork
-are original code-created visuals in this project.
+`models/viewmodel/arms.glb` is an original project asset, added September 11, 2026.
+It contains two skinned arms with elbow, wrist, finger, and thumb bones, and 16
+authored clips: Hold, Empty, Walk, Run, Climb, Throw, Pickup, and Refill for each arm.
+The reproducible mesh, rig, and clip source is `scripts/author-hands.js`; the optional
+export tool is `scripts/export-hands.mjs`. It does not modify the third-party rigs.
 
-License: [CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/).
+The Swiss cheese wedge and depletion morph, glass poison flask, crumbs, sky,
+procedural cobble/stone/wood/metal materials, architecture kit, three map layouts,
+and UI artwork are original code-created visuals in this project. Shell Shockers
+provided design references; no Shell Shockers models, textures, maps, or animations
+are included.
+
+Third-party license: [CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/).

@@ -1,8 +1,8 @@
 # Rat Race
 
 A first-person, single-player cheese heist built with Three.js. Ten roaming rats,
-two corner bases, a mildly devious bot, and three minutes to bring the most rats home.
-Choose between three large, original arenas with connected upper floors.
+two opposing base districts, a mildly devious bot, and three minutes to bring the most rats home.
+Choose between three original arenas with enterable buildings and connected stories.
 
 ## Run
 
@@ -24,8 +24,9 @@ together when releasing changes.
 An internet connection is needed for the Three.js module. Google Fonts is optional; system
 fonts are used if it is unavailable. Authored GLB models and their texture atlases are included in `assets/models/`, so
 playing does not depend on asset-hosting services. See [asset credits](assets/CREDITS.md).
-The rat and opponent use skeletal animations; the rats also nibble when eating.
-The flask, first-person hands, paving textures, icons, and sound effects are generated locally.
+The rat, opponent, and first-person arms use skeletal animations; the rats also nibble
+when eating. The included arm rig has 16 action clips. Architecture, materials,
+the flask, cheese depletion, icons, and sound effects are authored in local code.
 
 ## Play
 
@@ -33,7 +34,7 @@ The flask, first-person hands, paving textures, icons, and sound effects are gen
 | --- | --- |
 | WASD | Move |
 | Mouse | Look |
-| Shift | Sprint |
+| Shift | Sprint (hold by default; toggle available in Settings) |
 | Space | Jump / jump off a ladder |
 | W / S at a ladder | Climb up / down |
 | Left click | Throw held poison in a ballistic arc |
@@ -44,19 +45,24 @@ The larger map cards below the preview stay in sync with that selector.
 Click **Enter the rat race** to capture the mouse and start the countdown. Mouse and
 keyboard are required; the lobby responds to narrow screens, but touch gameplay is
 not implemented. The lobby includes instructions, mouse sensitivity, sound settings,
-an expandable live arena preview, and a map selector. Settings and the selected arena persist on the device.
+an expandable live arena preview, and a player-height tour. Settings include sprint
+toggle, reduced camera motion, graphics quality, and 60–100% render resolution.
+Settings and the selected arena persist on the device.
 
 ### Arenas
 
 | Map | Size | Traversal |
 | --- | --- | --- |
-| Crumb Quarter | 120 × 120 | 3 levels, market streets, rooftop bridge, 12m lookouts |
-| Gouda Aqueduct | 144 × 144 | 3 levels, shallow waterway, stone arches, 16m viaduct |
-| Timber Hollow | 160 × 160 | 4 levels, forest lanes, paired timber bridges, 15m lookout decks |
+| Old Town | 240 × 200 | Street grid, multistory apartments, internal stairs, roof bridges, −4m cellar, 20m rooftops |
+| Cheese Foundry | 280 × 220 | Six-story industrial hall, ring galleries, silos, gantries, 25m maintenance routes |
+| Canopy Citadel | 260 × 260 | Wooded fortress, −8m ravine, crypt, cliff terraces, offset bridges, 28m upper keep |
 
-These are 4×, 5.76×, and 7.11× the original arena area. Every map has mirrored
-geometry, two ground-level bases, three poison spawns, and ten rats near the center.
-Elevated poison rewards climbing; all elevated routes are also accessible by ramps.
+The footprints are approximately 2.6–3.3 times their preceding versions. Their layouts
+are independently designed: a town grid, stacked industrial loops, and a fortress
+around a ravine. Each has two base districts, three poison spawns, and ten rats near
+the center. Bases stay close enough to the foraging district for the cheese budget;
+outer and upper routes provide exploration and poison approaches. All poison
+objectives have stair/ramp access for rats and the bot.
 Face a ladder and hold W to ascend; use S near its upper landing to descend. Space
 jumps off a ladder or ledge. There is no fall damage. Rats and the bot use ramps,
 so take the longer route when herding. The minimap shows decks, ramps, ladders,
@@ -64,6 +70,16 @@ and cyan rats when they are more than two units above you. The HUD shows altitud
 
 Map layouts are original; Shell Shockers’ connected floors, alternative approaches,
 and upper-level cover informed the traversal design.
+
+Open the [interactive floor-plan atlas](docs/map-atlas.html) through the local server
+to inspect each level and its connectors. The separate
+[Movement Lab](http://localhost:5173/?practice=1) has stairs, a low ceiling, a ladder,
+and jump gaps for testing controls.
+
+Walking is 6.8 units/sec and sprinting is 11.5. Horizontal velocity continues through
+takeoff, with bounded air steering, 80ms coyote time, and 100ms jump buffering.
+Diagonal commands are normalized as a vector, and the camera interpolates all
+three axes together, preventing the old backward shift when running and jumping.
 
 - Free rats reevaluate both hands and both base stacks every 0.2 seconds. Attraction is
   `cheese / 3D distance`, with a 12-unit cutoff and a 0.001-unit guard at exact overlap.
@@ -89,22 +105,30 @@ and upper-level cover informed the traversal design.
 ```text
 index.html             Lobby, HUD, dialogs, import map
 style.css              Responsive visual presentation
-src/maps.js            Arena catalog: geometry, platforms, ramps, ladders, spawns
-src/map.js             Height-aware capsule collision, gravity, layered A* navigation
+src/maps.js            Arena catalog (stable IDs retained for saved selections)
+src/maps/              Independent layouts, shared architectural kit, Movement Lab
+src/map.js             Spatial collision, terrain holes, vertical support, gravity
+src/movement.js        Velocity, sprint, jump buffering, coyote time, ladders
+src/navigation.js      Cached floor/sector graph and local A* paths
 src/simulation.js      Rules, seeded randomness, rat AI, bot AI, projectiles, match state
+src/actions.js         Shared authoritative throw timing and launch offsets
 src/input.js           Browser events → plain player command packets
 src/renderer.js        Three.js scene; reads state and interpolates transforms
+src/presentation.js    Common transform interpolation and pause-aware visual clock
+src/viewmodel.js       Separate first-person scene, arm clips, grip and item actions
+src/architecture.js    Sector-batched architecture, stairs, trim, and themed materials
 src/assets.js          Local GLB loading, shared instances, skeletal animation
-assets/models/         Rat, opponent, food, and environment models with textures
+assets/models/         Rat, opponent, arms, food, and environment models with textures
 src/ui.js              HUD, minimap, notifications, and match screens
 src/audio.js           Optional Web Audio feedback
 src/main.js            Client lifecycle and fixed 60 Hz accumulator
-tests/simulation.test.js
+tests/                 Rules, replay, navigation, traversal, and movement regressions
+scripts/               Optional browser QA and reproducible arm-rig authoring
 ```
 
 The simulation imports **no DOM, Three.js, browser input, clocks, or audio**. The
 renderer never writes to simulation state. Static map/navigation data is shared;
-every evolving AI timer, path, random seed, and projectile is stored in GameState.
+every evolving AI timer, path, random seed, pending action, and projectile is stored in GameState.
 The client interpolates positions between steps and caps the catch-up backlog after
 long frames to keep the browser responsive. Pausing is a local client concern.
 
@@ -129,12 +153,15 @@ const restoredState = JSON.parse(wireSnapshot);
 stepGame(restoredState, {});
 ```
 
-Movement commands use world X/Z axes and are normalized/clamped by the simulation.
+Movement commands use world X/Z axes and are normalized together by the simulation.
 `throw` and `jump` are one-tick actions. `climb` is a held value from -1 to 1.
-Snapshots include `mapId`, player/rat `y`, `vy`, and `grounded`, plus player
-`ladderId` and its reattachment cooldown. The server and clients must use the same
+Schema version 4 snapshots include `mapId`, player/rat `y`, `vy`, and `grounded`, plus
+player `vx`, `vz`, traversal state, `ladderId`, reattachment cooldown, and pending throw.
+A throw reserves the bottle, then consumes it and spawns one projectile at its fixed
+release tick (0.18 seconds into a 0.56-second action). Rendering never supplies a
+bone transform to the simulation. The server and clients must use the same
 map catalog version. Navigation caches contain only map-derived data and are keyed
-by map ID; different maps can run concurrently without a global active-map switch. The server must authenticate player IDs, sequence input
+by immutable map object; different maps can run concurrently without a global active-map switch. The server must authenticate player IDs, sequence input
 packets, and own tick timing. Transport, lobbies, reconciliation, and prediction are
 not implemented. The browser currently renders from player 0's perspective; a
 network client will need to choose its local player ID when applying snapshots.
@@ -144,6 +171,7 @@ For inspection in the browser console:
 ```js
 window.GameState         // The current plain state object (also available during play).
 window.RatRace.snapshot() // A detached, serializable copy.
+window.RatRace.diagnostics // Draw calls, triangles, resource counts, camera and quality.
 ```
 
 ## Validate
@@ -154,17 +182,31 @@ Requires Node.js 20 or newer, with no test dependencies:
 npm test
 ```
 
-Tests cover deterministic snapshot replay, countdown and match timing, attraction
+The 43 tests cover deterministic snapshot replay, countdown and match timing, attraction
 and secured feeding, cheese decay/refill, collision and navigation, pickups, ballistic
 hits/misses, left-hand throws, poison release and recapture, sudden death, full bot matches, and
-independent human command slots, map symmetry, traversable ramps, all ladder endpoints,
+independent human command slots, distinct map layouts, every stair flight, all ladder endpoints,
 falls and jumps, elevated pickups, deck impacts, and independent multi-map snapshot
-replay. State schema version 3 adds map identity and vertical movement.
-`rat.eating` and latched `capturedBy` behavior are retained.
+replay. Diagonal takeoff and interpolation are checked at 30/60/120/144 FPS, alongside
+sprint speed, continuous ladder exits, and exactly-once throw release after restoring
+JSON. `rat.eating` and latched `capturedBy` behavior are retained.
+
+Optional browser QA requires Playwright and a running local server:
+
+```sh
+node scripts/browser-smoke.mjs
+```
+
+The script checks all three maps, pause during throw, depletion/refill, rematches,
+settings, the Movement Lab, and the atlas. It writes captures and a report under
+`docs/research/release/`. Set `PLAYWRIGHT_MODULE` to an installed Playwright module
+path and/or `CHROME_PATH` to a Chrome executable when needed. These tools are not
+runtime dependencies. [Implementation and measured limits](docs/IMPLEMENTATION.md)
+records the release checks; headless samples are not a reference-laptop GPU benchmark.
 
 ## Adding a map
 
-Add a data entry to `MAPS` in `src/maps.js`. The lobby generates its card and live
+Add a layout factory under `src/maps/` and register it in `src/maps.js`. The lobby generates its card and live
 preview automatically. Coordinates use X/Z horizontally and Y up, with units in
 meters. `platforms` are solid slabs (`y` is the underside); `ramps` are solid wedges
 with `low`, `high`, `axis`, and `direction`. Keep ramps gentle (at most 1:3), at least
@@ -172,7 +214,14 @@ with `low`, `high`, `axis`, and `direction`. Keep ramps gentle (at most 1:3), at
 ramp access; ladders are player shortcuts. Ladders define bottom/top heights, an
 outward normal, and a safe top exit point. Keep exits clear of pillars and cover.
 
-All solid set pieces belong in the shared obstacle data so their visual placement
-and collision agree. Repeated static model parts are instanced by geometry/material
-pair. Map scenes are cached on first selection; animated rats and hands are reused.
+All solid set pieces belong in shared obstacle data so visual placement and
+collision agree. Use `holes` for lower terrain; never place a basement under an
+unbroken ground plane. The shared kit builds real wall openings and connected
+stairs. Repeated static parts are instanced or merged within visibility sectors.
+The chosen map loads first, shaders prewarm before the countdown, and at most two
+map scenes remain cached. Animated characters and hands are reused.
 The selected map changes only in the lobby; a rematch keeps the same arena.
+
+`scripts/author-hands.js` contains the original arm mesh, skeleton, and animation
+source. With the server running and the optional Playwright dependency available,
+`node scripts/export-hands.mjs` regenerates `assets/models/viewmodel/arms.glb`.

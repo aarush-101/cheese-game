@@ -1,7 +1,9 @@
+import { MOVEMENT } from './movement.js';
+import { ACTIONS, launchTransform } from './actions.js';
 import { ARENA, getMap, DEFAULT_MAP_ID, clamp, distance, flatDistance, moveBody, movePlayer, updateVertical, floorHeight, isFree, findPath, clearPath, projectileHits } from './map.js';
 
 export const FIXED_DT = 1 / 60;
-export const RULES = Object.freeze({ duration: 180, ratCount: 10, walkSpeed: 5.2, sprintSpeed: 8.3, ratSpeed: 4.4, attractRadius: 12, baseCheese: 40, cheeseDecay: 2, poisonDuration: 15, fleeDuration: 3, pickupRespawn: 20 });
+export const RULES = Object.freeze({ duration: 180, ratCount: 10, walkSpeed: MOVEMENT.walk, sprintSpeed: MOVEMENT.sprint, ratSpeed: MOVEMENT.rat, attractRadius: 12, baseCheese: 40, cheeseDecay: 2, poisonDuration: 15, fleeDuration: 3, pickupRespawn: 20 });
 
 export function random(state) {
   let v = state.rng;
@@ -21,10 +23,10 @@ export function emit(state, type, data = {}) {
 export function createGameState(seed = 12345, { controllers = ['human', 'bot'], mapId = DEFAULT_MAP_ID } = {}) {
   const map = getMap(mapId);
   const state = {
-    version: 3, mapId, rng: (seed >>> 0) || 1, tick: 0, time: 0, phase: 'lobby',
+    version: 4, mapId, rng: (seed >>> 0) || 1, tick: 0, time: 0, phase: 'lobby',
     countdown: 3, remaining: RULES.duration, winner: null,
     players: map.bases.map((b, id) => ({
-      id, controller: controllers[id], x: b.x, y: b.y, z: b.z, vy: 0, grounded: true, ladderId: null, ladderCooldown: 0, yaw: id === 0 ? -Math.PI / 4 : Math.PI * 0.75,
+      id, controller: controllers[id], x: b.x, y: b.y, z: b.z, vx: 0, vz: 0, vy: 0, speed: 0, travel: 0, grounded: true, traversal: 'idle', pendingThrow: null, actionUntil: 0, ladderId: null, ladderCooldown: 0, yaw: id === 0 ? -Math.PI / 4 : Math.PI * 0.75,
       pitch: 0, cheese: 100, poison: false, refillProgress: 0, followers: 0, moving: false, sprinting: false,
       bot: { mode: 'LURE', nextDecision: 0.8, target: null, path: [], nextPath: 0, waitSince: null },
     })),
@@ -34,7 +36,7 @@ export function createGameState(seed = 12345, { controllers = ['human', 'bot'], 
   };
   for (let i = 0; i < RULES.ratCount; i++) {
     const angle = i / RULES.ratCount * Math.PI * 2, radius = 2.5 + random(state) * 3.5;
-    state.rats.push({ id: i, y: 0, vy: 0, grounded: true, x: Math.cos(angle) * radius, z: Math.sin(angle) * radius, yaw: angle,
+    state.rats.push({ id: i, y: 0, vy: 0, grounded: true, x: map.spawn.x + Math.cos(angle) * radius, z: map.spawn.z + Math.sin(angle) * radius, yaw: angle,
       target: null, capturedBy: null, nextEvaluate: i * 0.02, nextWander: 0, wander: null,
       fleeUntil: 0, fleeDirection: { x: 0, z: 0 }, path: [], nextPath: 0, moving: false, eating: false });
   }
@@ -76,10 +78,11 @@ function routeDirection(state, body, target, radius, interval = 0.65) {
     const d = flatDistance(body, target);
     return d > 0.01 ? { x: (target.x - body.x) / d, z: (target.z - body.z) / d } : { x: 0, z: 0 };
   }
-  if (state.time >= body.nextPath) {
-    body.path = findPath(body, target, radius, map); body.nextPath = state.time + interval;
+  if (state.time >= body.nextPath && state.navigationBudget>0 && (!body.path.length || !body.pathTarget || distance(target,body.pathTarget)>3)) {
+    state.navigationBudget--;
+    body.path = findPath(body, target, radius, map); body.nextPath = state.time + interval; body.pathTarget={...target};
   }
-  while (body.path.length && distance(body, body.path[0]) < 0.55) body.path.shift();
+  while (body.path.length && distance(body, body.path[0]) < 0.15) body.path.shift();
   const point = body.path[0];
   if (!point) return { x: 0, z: 0 };
   const d = flatDistance(body, point);
@@ -121,16 +124,19 @@ function updateRats(state, dt) {
         speed = Math.min(speed, Math.max(0, distance(rat, target) - stoppingDistance) / dt);
       }
     }
+    if(rat.grounded&&Math.hypot(dir.x,dir.z)>.1){const next=floorHeight(rat.x+dir.x*.7,rat.z+dir.z*.7,rat.y+.35,map),slope=clamp((next-rat.y)/.7,-.5,.5);speed/=Math.sqrt(1+slope*slope);}
     let dx = dir.x * speed, dz = dir.z * speed;
     // Mild separation prevents ten rats from rendering as one box.
     for (const other of state.rats) if (other.id !== rat.id) {
       const d = distance(rat, other);
       if (d > 0.001 && d < 0.72) { dx += (rat.x - other.x) / d * (0.72 - d) * 3; dz += (rat.z - other.z) / d * (0.72 - d) * 3; }
     }
+    const oldX=rat.x,oldZ=rat.z;
     rat.moving = Math.hypot(dx, dz) > 0.2;
     if (rat.moving) rat.yaw = Math.atan2(dx, dz);
     moveBody(rat, dx * dt, dz * dt, 0.28, map, 0.65);
     updateVertical(rat, dt, map, 0.65);
+    rat.speed=Math.hypot(rat.x-oldX,rat.z-oldZ)/dt;rat.moving=rat.speed>.15;
   }
 }
 
@@ -154,12 +160,16 @@ export function poisonBase(state, baseId) {
   emit(state, 'poison', { baseId });
 }
 function throwPoison(state, player) {
-  if (!player.poison) return;
-  player.poison = false;
-  const elevation = clamp(player.pitch + 0.4, -0.8, 1.25), speed = 14;
+  if (!player.poison || player.pendingThrow || player.ladderId || state.time<player.actionUntil) return;
+  player.pendingThrow={started:state.time,releaseAt:state.time+ACTIONS.throw.release};
+  player.actionUntil=state.time+ACTIONS.throw.duration;
+  emit(state,'throw-start',{playerId:player.id});
+}
+function releasePoison(state,player){
+  player.poison=false;player.pendingThrow=null;
+  const elevation = clamp(player.pitch + 0.4, -0.8, 1.25), speed = ACTIONS.throw.speed;
   state.projectiles.push({ id: state.nextProjectileId++, owner: player.id,
-    x: player.x - Math.sin(player.yaw) * 0.7 - Math.cos(player.yaw) * 0.3,
-    y: player.y + 1.4, z: player.z - Math.cos(player.yaw) * 0.7 + Math.sin(player.yaw) * 0.3,
+    ...launchTransform(player), born:state.time, origin:launchTransform(player),
     vx: -Math.sin(player.yaw) * Math.cos(elevation) * speed,
     vy: Math.sin(elevation) * speed, vz: -Math.cos(player.yaw) * Math.cos(elevation) * speed,
   });
@@ -202,9 +212,18 @@ export function botCommand(state, player) {
   let throwNow = false;
   if (state.time >= ai.nextDecision) {
     ai.nextDecision = state.time + 0.45 + random(state) * 0.45;
+    let reserveUrgent=false;
+    if(followers.length){
+      const route=findPath(player,home,.55,getMap(state.mapId));let anchor=player,length=0;
+      for(const n of route){length+=distance(anchor,n);anchor=n;}
+      ai.returnSeconds=route.length?length/(RULES.ratSpeed*.86)+2:999;
+      reserveUrgent=player.cheese/(RULES.cheeseDecay*followers.length)<ai.returnSeconds+3;
+    }
     const pickup = state.pickups.filter(p => p.availableAt <= state.time && distance(player, p) < 10).sort((a,b) => distance(player,a) - distance(player,b))[0];
     if (player.cheese < 30 || (ai.mode === 'REFILL' && player.cheese < 99)) {
       ai.mode = 'REFILL'; ai.target = { x: home.x, y: home.y, z: home.z };
+    } else if (reserveUrgent) {
+      ai.mode='RETURN';ai.target={x:home.x,y:home.y,z:home.z};
     } else if (player.poison && enemy.count >= 3 && enemy.poisonedUntil <= state.time) {
       ai.mode = 'INTERRUPT';
       const d = distance(player, enemy), vx = (player.x - enemy.x) / Math.max(d, 0.01), vz = (player.z - enemy.z) / Math.max(d, 0.01);
@@ -241,12 +260,12 @@ export function botCommand(state, player) {
   // Give free rats time to gather before returning to the cheese board.
   const stop = ai.mode === 'LURE' ? 2.4 : ai.mode === 'REFILL' || ai.mode === 'RETURN' ? 0.5 : 0.7;
   if (distance(player, target) < stop) return { yaw: player.yaw };
-  const nav = { x: player.x, y: player.y, z: player.z, path: ai.path, nextPath: ai.nextPath };
+  const nav = { x: player.x, y: player.y, z: player.z, path: ai.path, nextPath: ai.nextPath, pathTarget:ai.pathTarget };
   const dir = routeDirection(state, nav, target, 0.55, 0.9);
-  ai.path = nav.path; ai.nextPath = nav.nextPath;
+  ai.path = nav.path; ai.nextPath = nav.nextPath; ai.pathTarget=nav.pathTarget??null;
   // Stay within scent range on long routes and let the herd catch up at turns.
   const pace = ai.mode === 'RETURN' ? (followers.some(r=>distance(r,player)>7) ? 0.62 : 0.78) : 0.91;
-  return { moveX: dir.x * pace, moveZ: dir.z * pace, yaw: Math.atan2(-dir.x, -dir.z), pitch: 0, sprint: false };
+  return { moveX: dir.x * pace, moveZ: dir.z * pace, yaw: Math.atan2(-dir.x, -dir.z), pitch: 0, sprint: followers.length===0 && distance(player,target)>15 && ai.mode!=='LURE' };
 }
 
 function updatePlayers(state, commands, dt) {
@@ -255,12 +274,16 @@ function updatePlayers(state, commands, dt) {
     const finite = v => Number.isFinite(v) ? v : 0;
     if (Number.isFinite(input.yaw)) p.yaw = input.yaw;
     if (Number.isFinite(input.pitch)) p.pitch = clamp(input.pitch, -1.35, 1.35);
-    let x = clamp(finite(input.moveX), -1, 1), z = clamp(finite(input.moveZ), -1, 1);
+    let x = finite(input.moveX), z = finite(input.moveZ);
     const length = Math.hypot(x, z);
     if (length > 1) { x /= length; z /= length; }
-    p.moving = length > 0.01; p.sprinting = Boolean(input.sprint) && p.moving;
+    p.sprinting = Boolean(input.sprint) && length>.01 && !p.ladderId;
+    p.jumped=false;p.landed=0;
     const speed = p.sprinting ? RULES.sprintSpeed : RULES.walkSpeed;
-    movePlayer(p, { moveX:x, moveZ:z, jump:Boolean(input.jump), climb:clamp(finite(input.climb),-1,1) }, dt, getMap(state.mapId), speed);
+    movePlayer(p, { moveX:x, moveZ:z, jump:Boolean(input.jump), climb:state.time<p.actionUntil?0:clamp(finite(input.climb),-1,1) }, dt, getMap(state.mapId), speed);
+    if(p.jumped)emit(state,'jump',{playerId:p.id});
+    if(p.landed>2)emit(state,'land',{playerId:p.id,impact:p.landed});
+    if(!p.moving)p.sprinting=false;
     p.followers = state.rats.filter(r => r.target === `player:${p.id}` && r.fleeUntil <= state.time).length;
     p.cheese = Math.max(0, p.cheese - p.followers * RULES.cheeseDecay * dt);
     if (distance(p, state.bases[p.id]) <= ARENA.baseRadius && Math.abs(p.y-state.bases[p.id].y)<1) {
@@ -270,11 +293,12 @@ function updatePlayers(state, commands, dt) {
         p.cheese = 100; p.refillProgress = 0;
       }
     } else p.refillProgress = 0;
-    for (const pickup of state.pickups) if (!p.poison && pickup.availableAt <= state.time && distance(p, pickup) < 1.25) {
+    for (const pickup of state.pickups) if (!p.poison && !p.pendingThrow && !p.ladderId && pickup.availableAt <= state.time && distance(p, pickup) < 1.25) {
       p.poison = true; pickup.availableAt = state.time + RULES.pickupRespawn;
       emit(state, 'pickup', { playerId: p.id });
     }
     if (input.throw) throwPoison(state, p);
+    if(p.pendingThrow&&state.time+1e-8>=p.pendingThrow.releaseAt)releasePoison(state,p);
   }
 }
 function updateCaptures(state) {
@@ -308,7 +332,7 @@ export function stepGame(state, commands = {}, dt = FIXED_DT) {
     if (state.countdown < 1e-8) { state.phase = 'playing'; emit(state, 'start'); }
     return;
   }
-  state.time += dt;
+  state.time += dt;state.navigationBudget=2;
   updatePlayers(state, commands, dt);
   updateProjectiles(state, dt);
   updateRats(state, dt);
